@@ -1,0 +1,6 @@
+python-telegram-bot
+openai
+python-dotenv
+deepl
+SQLAlchemy
+psycopg2
