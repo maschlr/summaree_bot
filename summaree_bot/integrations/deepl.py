@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from typing import Optional, Iterator
 
-from ..models import Transcript, Translation, Summary, add_session
+from ..models import Language, Translation, Topic
 
 deepl_token: Optional[str] = os.getenv("DEEPL_TOKEN")
 translator = deepl.Translator(deepl_token)
@@ -61,48 +61,24 @@ available_target_languages = DeepLLanguages(
 
 def translate(
     session: Session,
-    target_language: DeepLLanguage = available_target_languages.ietf_tag_to_language[
-        "en"
-    ],
-    transcript: Optional[Transcript] = None,
-    summary: Optional[Summary] = None,
+    target_language: Language,
+    topic: Topic
 ) -> Translation:
     stmt = (
         select(Translation)
-        .where(Translation.target_lang == target_language.ietf_language_tag)
+        .where(Translation.target_lang == target_language)
+        .where(Translation.topic == topic)
     )
-    if transcript:
-        stmt = stmt.where(Translation.transcript == transcript)
-    elif summary:
-        stmt = stmt.where(Translation.summary == summary)
-    else:
-        raise ValueError("Either transcript or summary needs to be provided")
     
     if translation := session.scalars(stmt).one_or_none():
         return translation
 
-    if target_language.ietf_language_tag not in available_target_languages.ietf_tag_to_language:
-        raise ValueError(f"Target language {target_language} is not available.")
-
-    if transcript:
-        source_text = transcript.result
-        deepl_result = translator.translate_text(source_text, target_lang=target_language.code)
-        transcript.language_code = deepl_result.detected_source_lang
-        source_lang = transcript.language_code
-        session.add(transcript)
-    elif summary:
-        source_lang = "en"
-        source_text = summary.text
-        deepl_result = translator.translate_text(source_text, target_lang=target_language.code)
-    else:
-        raise ValueError("Either transcript or summary needs to be provided")
+    source_text = topic.text
+    deepl_result = translator.translate_text(source_text, target_lang=target_language.code)
 
     translation = Translation(
-        transcript=transcript,
-        summary=summary,
-        source_lang=source_lang,
-        source_text=source_text,
-        target_lang=target_language.ietf_language_tag,
+        topic=topic,
+        target_lang=target_language,
         target_text=deepl_result.text,
     )
     session.add(translation)

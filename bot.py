@@ -1,5 +1,6 @@
 import os
 import logging
+from functools import wraps
 
 from dotenv import load_dotenv
 
@@ -9,8 +10,8 @@ from sqlalchemy.orm import Session
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from summaree_bot.integrations import transcribe, translate, summarize, available_target_languages
-from summaree_bot.models import TelegramChat, Translation, add_session, ensure_chat
+from summaree_bot.integrations import transcribe, translate, summarize
+from summaree_bot.models import TelegramChat, Translation, add_session, Language
 
 
 # Enable logging
@@ -27,6 +28,28 @@ MSG = (
     "You can forward messages from other chats to me, even if they are in other apps."            
 )
 
+def ensure_chat(fnc):
+    @wraps(fnc)
+    def wrapper(*args, **kwargs):
+        # update is either in kwargs or first arg
+        update = kwargs.get("update", args[0])
+        # session is in kwargs
+        session = kwargs.get("session")
+        if not (chat := session.get(TelegramChat, update.effective_chat.id)):
+            # standard is english language
+            en_lang = select(Language).where(Language.ietf_tag == "en").scalar_one()
+            chat = TelegramChat(
+                id=update.effective_chat.id,
+                type=update.effective_chat.type,
+                target_language_code=en_lang,
+                language_code=update.effective_chat.language_code,
+            )
+            session.add(chat)
+            # TODO: emit welcome message
+        return fnc(*args, **kwargs)
+    return wrapper
+
+
 # Define a few command handlers. These usually take the two arguments update and
 # context.
 @add_session
@@ -36,27 +59,33 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
     if update.message is None or update.effective_chat is None:
         raise ValueError("The update must contain a message.")
     
-    def msg(prefix, target_languages=available_target_languages):
-        return f"{prefix}:\n" + "".join(str(lang) for lang in target_languages)
+    stmt = select(Language)
+    languages = session.scalars(stmt).all()
+
+    def msg(prefix, target_languages=languages):
+        return f"{prefix}:" + "\n\t".join(f"{lang.ietf_tag} ({lang.name})" for lang in target_languages)
 
     try:
         if context.args is None:
             raise IndexError
-        target_language_code = context.args[0].lower()
-        if target_language := available_target_languages.ietf_tag_to_language.get(target_language_code):
-            stmt = select(TelegramChat).where(TelegramChat.id == update.effective_chat.id)
-            chat = session.scalars(stmt).one()
-            if chat.target_language_code != target_language.ietf_language_tag:
-                chat.target_language_code = target_language_code
+        target_language_ietf_tag = context.args[0].lower()
+        stmt = select(Language).where(Language.ietf_tag == target_language_ietf_tag)
+        if target_language := session.scalars(stmt).one_or_none():
+            chat = session.get(TelegramChat, update.effective_chat.id)
+            if chat is None:
+                return
+            elif chat.target_language != target_language:
+                chat.target_language = target_language
                 session.add(chat)
                 await update.message.reply_html(
-                    f"Target language successfully set to: {target_language_code} ({target_language.name})",
+                    f"Target language successfully set to: {target_language_ietf_tag} ({target_language.name})",
                     reply_markup=ForceReply(selective=True),
                 )
             else:
-                other_available_languages = [lang for lang in available_target_languages if lang.ietf_language_tag != target_language_code]
+                other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)  
+                other_available_languages = session.scalars(other_available_languages_stmt).all()
                 answer = (
-                    f"This language is already configured as the target language :{target_language_code} ({target_language.name})\n"
+                    f"This language is already configured as the target language :{chat.target_language.ietf_tag} ({chat.target_language.name})\n"
                     "Other available languages are"
                 )
                 
@@ -93,35 +122,34 @@ async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
         _logger.warning("The update must contain a voice message.")
         return
     
-    stmt = select(TelegramChat).where(TelegramChat.id == update.effective_chat.id)
-    chat = session.scalars(stmt).one()
-
-    # set the target language to the language of the user that sent the message
     _logger.info(f"Summarizing voice message {update.message.id} from {update.effective_user.name}")
     await update.message.reply_chat_action(action="typing")
 
     transcript = await transcribe(update, session=session)
-    # this automatically backpopulates the transcript
-    translate(transcript=transcript, session=session)
     summary = summarize(transcript=transcript, session=session)
-    if (target_lang_ietf_tag := chat.target_language_code) is None or target_lang_ietf_tag == "en":
-        text = summary.text
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    if chat is None: 
+        return
+    en_lang_stmt = select(Language).where(Language.ietf_tag == "en")
+    en_lang = session.scalars(en_lang_stmt).one()
+    if chat.target_language != en_lang:
+        translations = [translate(session=session, target_language=chat.target_language, topic=topic) for topic in summary.topics]
+        for translation in translations:
+            session.add(translation)
+        msg = "\n".join(translation.target_text for translation in translations)
     else:
-        language = available_target_languages.ietf_tag_to_language[target_lang_ietf_tag]
-        translation_out = translate(target_language=language, summary=summary, session=session)
-        summary.translation = translation_out
-        session.add(summary)
-        text = translation_out.target_text
+        msg = "\n".join(topic.text for topic in summary.topics)
 
-    await update.message.reply_text(text)
+    await update.message.reply_text(msg)
 
 @add_session
 @ensure_chat
 async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None or update.effective_user is None:
-        raise ValueError("The update must contain a message and a user.")
+    if update.message is None:
+        raise ValueError("The update must contain a message.")
     else:
         await update.message.reply_text(MSG)
+
 
 def main() -> None:
     """Start the bot."""
