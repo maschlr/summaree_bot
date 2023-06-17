@@ -17,7 +17,9 @@ from summaree_bot.models.session import add_session
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+fh = logging.FileHandler("summaree_bot.log")
 _logger = logging.getLogger(__name__)
+_logger.addHandler(fh)
 
 
 MSG = (
