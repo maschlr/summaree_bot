@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Iterator
 
 from ..models import Language, Translation, Topic
+from ..models.session import add_session
 
 deepl_token: Optional[str] = os.getenv("DEEPL_TOKEN")
 translator = deepl.Translator(deepl_token)
@@ -84,3 +85,17 @@ def translate(
     session.add(translation)
 
     return translation
+
+
+@add_session
+def check_database_languages(session: Session):
+    for ietf_tag, lang in available_target_languages.ietf_tag_to_language.items():
+        stmt = select(Language).where(Language.ietf_tag == ietf_tag)
+        if not session.execute(stmt).one_or_none():
+            session.add(
+                Language(
+                    name=lang.name,
+                    ietf_tag=ietf_tag,
+                    code=lang.code,
+                )
+            ) 

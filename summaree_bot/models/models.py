@@ -1,15 +1,11 @@
-import os
 from datetime import datetime
-from functools import wraps
 
 from typing import List, Optional
 from sqlalchemy import ForeignKey
-from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-from sqlalchemy.orm import sessionmaker
 
 
 class Base(DeclarativeBase):
@@ -30,9 +26,10 @@ class TelegramChat(Base):
     __tablename__ = "telegram_chat"
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str]
-    language_code: Mapped[str]
+    user_language_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
+    user_language: Mapped["Language"] = relationship(foreign_keys=[user_language_id])
     target_language_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
-    target_language: Mapped["Language"] = relationship("Language", back_populates="telegram_chats")
+    target_language: Mapped["Language"] = relationship(foreign_keys=[target_language_id])
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
 
 class BotMessage(Base):
@@ -46,7 +43,6 @@ class BotMessage(Base):
     summary_id: Mapped[Optional[int]] = mapped_column(ForeignKey("summary.id"))
     summary: Mapped[Optional["Summary"]] = relationship(back_populates="messages")
     
-    translations: Mapped[List["Translation"]] = relationship(back_populates="message")
 
 class Transcript(Base):
     __tablename__ = "transcript"
@@ -100,8 +96,6 @@ class Translation(Base):
     topic_id: Mapped[int] = mapped_column(ForeignKey("topic.id"))
     topic: Mapped["Topic"] = relationship(back_populates="translations")
 
-    messages: Mapped[List["BotMessage"]] = relationship(back_populates="translations")
-
 
 class Language(Base):
     # DeepL supported target languages
@@ -113,21 +107,3 @@ class Language(Base):
 
     transcripts: Mapped[List["Transcript"]] = relationship(back_populates="input_language")
     translations: Mapped[List["Translation"]] = relationship(back_populates="target_lang")
-    telegram_chats: Mapped[List["TelegramChat"]] = relationship(back_populates="target_language_code")
-
-
-if db_url := os.getenv("DB_URL"):
-    engine = create_engine(db_url)
-    Base.metadata.create_all(engine)
-else:
-    raise ValueError("DB_URL environment variable not set. Cannot initialize database engine.")
-
-# use this decorator for functions in bot.py
-def add_session(fnc):
-    @wraps(fnc)
-    def wrapper(*args, **kwargs):
-        with sessionmaker(engine).begin() as session:
-            kwargs["session"] = session
-            return fnc(*args, **kwargs)
-    return wrapper
-

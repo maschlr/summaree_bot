@@ -10,7 +10,7 @@ import telegram
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Transcript, Summary, Topic, add_session
+from ..models import Transcript, Summary, Topic
 
 _logger = logging.getLogger(__name__)
 

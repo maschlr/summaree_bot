@@ -2,16 +2,15 @@ import os
 import logging
 from functools import wraps
 
-from dotenv import load_dotenv
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from summaree_bot.integrations import transcribe, translate, summarize
-from summaree_bot.models import TelegramChat, Translation, add_session, Language
+from summaree_bot.integrations import transcribe, translate, summarize, check_database_languages
+from summaree_bot.models import TelegramChat, Language
+from summaree_bot.models.session import add_session
 
 
 # Enable logging
@@ -20,8 +19,6 @@ logging.basicConfig(
 )
 _logger = logging.getLogger(__name__)
 
-
-load_dotenv()
 
 MSG = (
     "Send me a voice message and I will summarize it for you. "
@@ -37,12 +34,24 @@ def ensure_chat(fnc):
         session = kwargs.get("session")
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
             # standard is english language
-            en_lang = select(Language).where(Language.ietf_tag == "en").scalar_one()
+            en_lang_stmt = select(Language).where(Language.ietf_tag == "en")
+            en_lang = session.scalars(en_lang_stmt).one_or_none()
+            if en_lang is None:
+                raise ValueError("English language not found in database.")
+            
+            language_code = None
+            attr = "language_code"
+            for obj in (update.effective_chat, update.effective_user):
+                if hasattr(obj, attr):
+                    language_code = getattr(obj, attr)
+            if language_code is None:
+                language_code = "en"
+                
             chat = TelegramChat(
                 id=update.effective_chat.id,
                 type=update.effective_chat.type,
-                target_language_code=en_lang,
-                language_code=update.effective_chat.language_code,
+                target_language=en_lang,
+                user_language=language_code,
             )
             session.add(chat)
             # TODO: emit welcome message
@@ -152,6 +161,8 @@ async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
+    check_database_languages()
+
     """Start the bot."""
     # Create the Application and pass it your bot's token.
     if telegram_bot_token := os.getenv("TELEGRAM_BOT_TOKEN"):
