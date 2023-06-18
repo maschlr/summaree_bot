@@ -1,7 +1,6 @@
 import os
 import logging
 from functools import wraps
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session
 from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
+import summaree_bot.logging
 from summaree_bot.integrations import transcribe, translate, summarize, check_database_languages
 from summaree_bot.models import TelegramChat, TelegramUser, Language
 from summaree_bot.models.session import add_session
@@ -152,7 +152,7 @@ async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
 
 @add_session
 @ensure_chat
-async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Session) -> None:
     if update.message is None:
         raise ValueError("The update must contain a message.")
     else:

@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 LOGGING_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-formatter = logging.Formatter()
+formatter = logging.Formatter(LOGGING_FORMAT)
 logging.basicConfig(
     format=LOGGING_FORMAT, level=logging.INFO
 )

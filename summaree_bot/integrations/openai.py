@@ -32,6 +32,7 @@ async def transcribe(update: telegram.Update, session: Session) -> Transcript:
 
     stmt = select(Transcript).where(Transcript.file_unique_id == update.message.voice.file_unique_id)
     if (transcript := session.scalars(stmt).one_or_none()):
+        _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {update.message.voice.file_unique_id}")
         return transcript
 
     # create a temporary folder
@@ -52,6 +53,7 @@ def transcribe_file(file_path: Path, voice: telegram.Voice, session: Session) ->
         sha256_hash = m.hexdigest()
         stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
         if transcript := session.scalars(stmt).one_or_none():
+            _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
             return transcript
     
     # convert the .ogg file to .mp3
@@ -73,13 +75,13 @@ def transcribe_file(file_path: Path, voice: telegram.Voice, session: Session) ->
             result=transcription_result["text"]
         )
         session.add(transcript)
+        session.commit()
         return transcript
 
 def summarize(transcript: Transcript, session: Session) -> Summary:
     # if the transcript is already summarized return it
-    stmt = select(Summary).where(Summary.transcript == transcript)
-    if summary := session.scalars(stmt).one_or_none():
-        return summary
+    if transcript.summary is not None:
+        return transcript.summary
 
     with open(Path(__file__).parent / "data" / "prompt.txt") as fp:
         system_msgs = [line.strip() for line in fp.readlines()]
@@ -90,7 +92,7 @@ def summarize(transcript: Transcript, session: Session) -> Summary:
         {"role": "user", "content": user_message}
     ]
 
-    summary_data = decode_openai_summary_result(messages)
+    summary_data = get_openai_chatcompletion(messages)
     
     language_stmt = select(Language).where(Language.ietf_tag == summary_data["language"])
     if not (language := session.scalars(language_stmt).one_or_none()):
@@ -104,10 +106,11 @@ def summarize(transcript: Transcript, session: Session) -> Summary:
         topics = [Topic(text=text) for text in summary_data["topics"]],
     )
     session.add(summary)
+    session.commit()
 
     return summary
 
-def decode_openai_summary_result(messages: list[dict], n_retry: int=1, max_retries: int=2) -> dict:
+def get_openai_chatcompletion(messages: list[dict], n_retry: int=1, max_retries: int=2) -> dict:
     summary_result = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-0613",
         messages=messages,
@@ -125,6 +128,6 @@ def decode_openai_summary_result(messages: list[dict], n_retry: int=1, max_retri
         else:
             _logger.info(f"Retrying {n_retry}/{max_retries}")
             messages.append(choice["message"])
-            messages.append({"role": "user", "content": "Your last message was not valid JSON. Please correct your last answer, your answer should contain nothing but the JSON"})
-            return decode_openai_summary_result(messages, n_retry + 1, max_retries)
+            messages.append({"role": "user", "content": "Your last message was not valid JSON. Please correct your last answer. Your answer should contain nothing but the JSON"})
+            return get_openai_chatcompletion(messages, n_retry + 1, max_retries)
     return data

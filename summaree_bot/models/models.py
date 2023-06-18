@@ -61,7 +61,7 @@ class TelegramChat(Base):
     language: Mapped["Language"] = relationship(back_populates="chats")
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
 
-    users: Mapped[set[TelegramUser]] = relationship(
+    users: Mapped[set["TelegramUser"]] = relationship(
         secondary=chats_to_users_rel, back_populates="chats"
     )
 
@@ -90,16 +90,18 @@ class Transcript(Base):
 
     # when creating transcript, the input language is unknown
     input_language_id: Mapped[Optional[int]] = mapped_column(ForeignKey("language.id"))
-    input_language: Mapped[Optional["Language"]] = relationship(back_populates="transcripts") # ietf language tag (e.g. en)
+    input_language: Mapped[Optional["Language"]] = relationship(back_populates="transcripts")
 
     # summary is created after transcribing
-    summary_id: Mapped[Optional[int]] = mapped_column(ForeignKey("summary.id"))
-    summary: Mapped[Optional["Summary"]] = relationship(back_populates="transcript")
+    summary: Mapped["Summary"] = relationship(back_populates="transcript")
 
 class Summary(Base):
     __tablename__ = "summary"
     id: Mapped[int] = mapped_column(primary_key=True)
+    
+    transcript_id = mapped_column(ForeignKey("transcript.id"))
     transcript: Mapped["Transcript"] = relationship(back_populates="summary")
+
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="summary")
     topics: Mapped[List["Topic"]] = relationship(back_populates="summary")
 

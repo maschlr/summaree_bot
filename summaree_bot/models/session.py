@@ -15,7 +15,9 @@ else:
 def add_session(fnc):
     @wraps(fnc)
     def wrapper(*args, **kwargs):
-        with sessionmaker(engine).begin() as session:
+        Session = sessionmaker(bind=engine)
+        with Session.begin() as session:
             kwargs["session"] = session
-            return fnc(*args, **kwargs)
+            result = fnc(*args, **kwargs)
+        return result
     return wrapper
