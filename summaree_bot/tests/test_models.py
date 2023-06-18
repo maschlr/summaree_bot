@@ -3,40 +3,47 @@ import unittest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from summaree_bot.models import TelegramChat, Base, Language
+from summaree_bot.models import TelegramChat, TelegramUser, Base, Language
 from summaree_bot.integrations.deepl import available_target_languages
 
+from .common import Common
 
-class BaseTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        engine = create_engine("sqlite:///:memory:", echo=True)
-        Base.metadata.create_all(engine)
-        cls.Session = sessionmaker(bind=engine)
-        cls.addClassCleanup(cls.Session.close_all)
-        cls.addClassCleanup(Base.metadata.drop_all, engine)
-
-class TestTelegramChat(BaseTest):
-    def test_no_chat_record(self):
+class TestTelegramChat(Common):
+    def test_00_no_chat_record(self):
         stmt = select(TelegramChat).where(TelegramChat.id == 1)
         with self.Session.begin() as session:
             result = session.execute(stmt).scalar()
 
         self.assertIsNone(result)
 
-
-class TestLanguages(BaseTest):
-    def test_language_insert(self):
-
+    def test__01_create_chat_with_users(self):
         with self.Session.begin() as session:
-            for ietf_tag, target_lang in available_target_languages.ietf_tag_to_language.items():
-                lang = Language(
-                    name=target_lang.name,
-                    ietf_tag=ietf_tag,
-                    code=target_lang.code,
+            users = {
+                TelegramUser(
+                    first_name="user1", 
+                    username="user1", 
+                    language_code="en"
+                ),
+                TelegramUser(
+                    first_name="user2",
+                    username="user2",
+                    language_code="ru"
                 )
-                session.add(lang)
+            }
+            session.add_all(users)
+
+            language = Language.get_default_language(session=session)
+            self.assertEqual(language.ietf_tag, "en")
+            chat = TelegramChat(type="private", users=users, language=language)
+            session.add(chat)
         
-        stmt = select(Language)
-        languages = self.Session().scalars(stmt).all()
-        self.assertEqual(len(languages), len(available_target_languages.ietf_tag_to_language))
+        stmt_chat = select(TelegramChat)
+        stmt_users = select(TelegramUser)
+        with self.Session.begin() as session:
+            result_chat = session.scalars(stmt_chat).one_or_none()
+            result_users = session.scalars(stmt_users).all()
+
+            self.assertEqual(result_chat.type, "private")
+            user_ids_in_chat = {user.id for user in result_chat.users}
+            for user in result_users:
+                self.assertIn(user.id, user_ids_in_chat)
