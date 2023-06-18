@@ -1,9 +1,9 @@
 import unittest
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from summaree_bot.models import TelegramChat, TelegramUser, Base, Language
+from summaree_bot.models import Base, Language
 from summaree_bot.integrations.deepl import available_target_languages
 
 class Common(unittest.TestCase):
