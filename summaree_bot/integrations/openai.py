@@ -42,35 +42,38 @@ async def transcribe(update: telegram.Update, session: Session) -> Transcript:
         file = await update.message.voice.get_file()
         await file.download_to_drive(file_path)
 
-        with open(file_path, "rb") as fp:
-            m = hashlib.sha256()
-            while chunk := fp.read(8192):
-                m.update(chunk)
-            sha256_hash = m.hexdigest()
-            stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
-            if transcript := session.scalars(stmt).one_or_none():
-                return transcript
-        
-        # convert the .ogg file to .mp3
-        if file_path.suffix != "mp3":
-            mp3_file_path = transcode_to_mp3(file_path)
-        else:
-            mp3_file_path = file_path
-            
-        # send the .mp3 file to openai whisper, create a db entry and return it
-        with open(mp3_file_path, "rb") as mp3_fp:
-            transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
-            transcript = Transcript(
-                file_unique_id=update.message.voice.file_unique_id,
-                file_id=update.message.voice.file_id,
-                sha256_hash=sha256_hash,
-                duration=update.message.voice.duration,
-                mime_type=update.message.voice.mime_type,
-                file_size=update.message.voice.file_size,
-                result=transcription_result["text"]
-            )
-            session.add(transcript)
+        return transcribe_file(file_path, update.message.voice, session)
+
+def transcribe_file(file_path: Path, voice: telegram.Voice, session: Session) -> Transcript:
+    with open(file_path, "rb") as fp:
+        m = hashlib.sha256()
+        while chunk := fp.read(8192):
+            m.update(chunk)
+        sha256_hash = m.hexdigest()
+        stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
+        if transcript := session.scalars(stmt).one_or_none():
             return transcript
+    
+    # convert the .ogg file to .mp3
+    if file_path.suffix != "mp3":
+        mp3_file_path = transcode_to_mp3(file_path)
+    else:
+        mp3_file_path = file_path
+        
+    # send the .mp3 file to openai whisper, create a db entry and return it
+    with open(mp3_file_path, "rb") as mp3_fp:
+        transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
+        transcript = Transcript(
+            file_unique_id=voice.file_unique_id,
+            file_id=voice.file_id,
+            sha256_hash=sha256_hash,
+            duration=voice.duration,
+            mime_type=voice.mime_type,
+            file_size=voice.file_size,
+            result=transcription_result["text"]
+        )
+        session.add(transcript)
+        return transcript
 
 def summarize(transcript: Transcript, session: Session) -> Summary:
     # if the transcript is already summarized return it
@@ -82,15 +85,33 @@ def summarize(transcript: Transcript, session: Session) -> Summary:
         system_msgs = [line.strip() for line in fp.readlines()]
 
     user_message = transcript.result
+    messages = [
+        *[{"role": "system", "content": system_msg} for system_msg in system_msgs],
+        {"role": "user", "content": user_message}
+    ]
 
+    summary_data = decode_openai_summary_result(messages)
+    
+    language_stmt = select(Language).where(Language.ietf_tag == summary_data["language"])
+    if not (language := session.scalars(language_stmt).one_or_none()):
+        _logger.warning(f"Could not find language with ietf_tag {summary_data['language']}")
+    else:
+        transcript.input_language = language
+        session.add(transcript)
+
+    summary = Summary(
+        transcript = transcript,
+        topics = [Topic(text=text) for text in summary_data["topics"]],
+    )
+    session.add(summary)
+
+    return summary
+
+def decode_openai_summary_result(messages: list[dict], n_retry: int=1, max_retries: int=2) -> dict:
     summary_result = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-0613",
-        messages=[
-            *[{"role": "system", "content": system_msg} for system_msg in system_msgs],
-            {"role": "user", "content": user_message}
-        ]
+        messages=messages,
     )
-
     try:
         [choice] = summary_result["choices"]
         data = json.loads(choice["message"]["content"])
@@ -98,20 +119,12 @@ def summarize(transcript: Transcript, session: Session) -> Summary:
         _logger.error(f"OpenAI returned more than one or no choices: {summary_result}")
         raise
     except json.JSONDecodeError:
-        _logger.error(f'OpenAI returned invalid JSON: {choice["message"]["content"]}')
-        raise
-
-    language_stmt = select(Language).where(Language.ietf_tag == data["language"])
-    if not (language := session.scalars(language_stmt).one_or_none()):
-        _logger.warning(f"Could not find language with ietf_tag {data['language']}")
-    else:
-        transcript.input_language = language
-        session.add(transcript)
-
-    summary = Summary(
-        transcript = transcript,
-        topics = [Topic(text=text) for text in data["topics"]],
-    )
-    session.add(summary)
-
-    return summary
+        _logger.warning(f'OpenAI returned invalid JSON: {choice["message"]["content"]}')
+        if n_retry == max_retries:
+            raise
+        else:
+            _logger.info(f"Retrying {n_retry}/{max_retries}")
+            messages.append(choice["message"])
+            messages.append({"role": "user", "content": "Your last message was not valid JSON. Please correct your last answer, your answer should contain nothing but the JSON"})
+            return decode_openai_summary_result(messages, n_retry + 1, max_retries)
+    return data
