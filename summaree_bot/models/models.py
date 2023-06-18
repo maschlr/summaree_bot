@@ -1,36 +1,69 @@
 from datetime import datetime
 
 from typing import List, Optional
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, Table, Column, select
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import Mapped, Session
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-
 
 class Base(DeclarativeBase):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
+chats_to_users_rel = Table(
+    "chats_to_users_rel",
+    Base.metadata,
+    Column("user_id", ForeignKey("telegram_user.id"), primary_key=True),
+    Column("chat_id", ForeignKey("telegram_chat.id"), primary_key=True),
+)
+
+
+class Language(Base):
+    # DeepL supported target languages
+    __tablename__ = "language"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    ietf_tag: Mapped[str]
+    code: Mapped[str]
+
+    transcripts: Mapped[List["Transcript"]] = relationship(back_populates="input_language")
+    translations: Mapped[List["Translation"]] = relationship(back_populates="target_lang")
+    chats: Mapped[List["TelegramChat"]] = relationship(back_populates="language")
+
+    @classmethod
+    def get_default_language(cls, session: Session) -> "Language":
+        stmt = select(cls).where(cls.ietf_tag == "en")
+        return session.execute(stmt).scalar_one()
+
+
 class TelegramUser(Base):
     __tablename__ = "telegram_user"
     id: Mapped[int] = mapped_column(primary_key=True)
-    is_bot: Mapped[bool]
+    is_bot: Mapped[bool] = mapped_column(default=False)
     first_name: Mapped[str]
     last_name: Mapped[Optional[str]]
-    username: Mapped[Optional[str]]
+    username: Mapped[str]
     language_code: Mapped[Optional[str]]
     is_premium: Mapped[Optional[bool]]
+
+    # use str of Model here to avoid linter warning
+    chats: Mapped[set["TelegramChat"]] = relationship(
+        secondary=chats_to_users_rel, back_populates="users"
+    )
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str]
-    user_language_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
-    user_language: Mapped["Language"] = relationship(foreign_keys=[user_language_id])
-    target_language_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
-    target_language: Mapped["Language"] = relationship(foreign_keys=[target_language_id])
+
+    language_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
+    language: Mapped["Language"] = relationship(back_populates="chats")
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
+
+    users: Mapped[set[TelegramUser]] = relationship(
+        secondary=chats_to_users_rel, back_populates="chats"
+    )
 
 class BotMessage(Base):
     __tablename__ = "bot_message"
@@ -95,15 +128,3 @@ class Translation(Base):
 
     topic_id: Mapped[int] = mapped_column(ForeignKey("topic.id"))
     topic: Mapped["Topic"] = relationship(back_populates="translations")
-
-
-class Language(Base):
-    # DeepL supported target languages
-    __tablename__ = "language"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
-    ietf_tag: Mapped[str]
-    code: Mapped[str]
-
-    transcripts: Mapped[List["Transcript"]] = relationship(back_populates="input_language")
-    translations: Mapped[List["Translation"]] = relationship(back_populates="target_lang")

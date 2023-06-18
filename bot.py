@@ -1,6 +1,7 @@
 import os
 import logging
 from functools import wraps
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,18 +10,12 @@ from telegram import ForceReply, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from summaree_bot.integrations import transcribe, translate, summarize, check_database_languages
-from summaree_bot.models import TelegramChat, Language
+from summaree_bot.models import TelegramChat, TelegramUser, Language
 from summaree_bot.models.session import add_session
 
 
 # Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-fh = logging.FileHandler("summaree_bot.log")
 _logger = logging.getLogger(__name__)
-_logger.addHandler(fh)
-
 
 MSG = (
     "Send me a voice message and I will summarize it for you. "
@@ -34,29 +29,33 @@ def ensure_chat(fnc):
         update = kwargs.get("update", args[0])
         # session is in kwargs
         session = kwargs.get("session")
+        
+        if not (user := session.get(TelegramUser, update.effective_user.id)):
+            attrs = ["id", "first_name", "last_name", "username", "language_code", "is_premium", "is_bot"]
+            user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in attrs}
+            
+            user = TelegramUser(
+                **user_kwargs
+            )
+            session.add(user)        
+        
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
             # standard is english language
-            en_lang_stmt = select(Language).where(Language.ietf_tag == "en")
-            en_lang = session.scalars(en_lang_stmt).one_or_none()
+            en_lang = Language.get_default_language(session)
             if en_lang is None:
                 raise ValueError("English language not found in database.")
-            
-            language_code = None
-            attr = "language_code"
-            for obj in (update.effective_chat, update.effective_user):
-                if hasattr(obj, attr):
-                    language_code = getattr(obj, attr)
-            if language_code is None:
-                language_code = "en"
                 
             chat = TelegramChat(
                 id=update.effective_chat.id,
                 type=update.effective_chat.type,
-                target_language=en_lang,
-                user_language=language_code,
+                language=en_lang,
+                users={user}
             )
             session.add(chat)
             # TODO: emit welcome message
+        elif user not in chat.users:
+            chat.users.append(user)
+
         return fnc(*args, **kwargs)
     return wrapper
 
@@ -85,9 +84,8 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
             chat = session.get(TelegramChat, update.effective_chat.id)
             if chat is None:
                 return
-            elif chat.target_language != target_language:
-                chat.target_language = target_language
-                session.add(chat)
+            elif chat.language != target_language:
+                chat.language = target_language
                 await update.message.reply_html(
                     f"Target language successfully set to: {target_language_ietf_tag} ({target_language.name})",
                     reply_markup=ForceReply(selective=True),
@@ -96,7 +94,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
                 other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)  
                 other_available_languages = session.scalars(other_available_languages_stmt).all()
                 answer = (
-                    f"This language is already configured as the target language :{chat.target_language.ietf_tag} ({chat.target_language.name})\n"
+                    f"This language is already configured as the target language :{chat.language.ietf_tag} ({chat.language.name})\n"
                     "Other available languages are"
                 )
                 
@@ -141,15 +139,14 @@ async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
     chat = session.get(TelegramChat, update.effective_chat.id)
     if chat is None: 
         return
-    en_lang_stmt = select(Language).where(Language.ietf_tag == "en")
-    en_lang = session.scalars(en_lang_stmt).one()
-    if chat.target_language != en_lang:
-        translations = [translate(session=session, target_language=chat.target_language, topic=topic) for topic in summary.topics]
+    en_lang = Language.get_default_language(session)
+    if chat.language != en_lang:
+        translations = [translate(session=session, target_language=chat.language, topic=topic) for topic in summary.topics]
         for translation in translations:
             session.add(translation)
-        msg = "\n".join(translation.target_text for translation in translations)
+        msg = "\n".join(f"- {translation.target_text}" for translation in translations)
     else:
-        msg = "\n".join(topic.text for topic in summary.topics)
+        msg = "\n".join(f"- {topic.text}" for topic in summary.topics)
 
     await update.message.reply_text(msg)
 
@@ -175,6 +172,8 @@ def main() -> None:
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("lang", set_lang))
+    # TODO: add /help command
+    # TODO: add commands to bot menu
 
     # on non command i.e message - echo the message on Telegram
     application.add_handler(MessageHandler(filters.VOICE, raison_d_etre))
@@ -182,6 +181,7 @@ def main() -> None:
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
+    # TODO: set environment variable to run with webhook (callback url)
 
 
 if __name__ == "__main__":
