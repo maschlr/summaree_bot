@@ -10,7 +10,7 @@ import telegram
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Transcript, Summary, Topic
+from ..models import Transcript, Summary, Topic, Language
 
 _logger = logging.getLogger(__name__)
 
@@ -78,29 +78,36 @@ def summarize(transcript: Transcript, session: Session) -> Summary:
     if summary := session.scalars(stmt).one_or_none():
         return summary
 
-    system_msgs = (
-        "You will receive transcriptios of voice messages in different input languages. ",
-        "Detect and output the input language as en ietf language tag. ",
-        "Your task is to translate the transcript into english and summarize it in bullet points. ",
-        "In the first step translate the transcript of the message into english, cleaning up the text and removing any filler words. ",
-        "In the second step, summarize the message in your own words in bullet points while keeping the meaning and the context. ",
-        "Group similar bullet points by topic together. Only output the final result. ",
-        "Your answer should be a valid JSON string and nothing else.", 
-        "The JSON object should have the following structure: {\"language\": \"<ietf_language_tag>\", \"topics\": [\"<bullet_point1>\", \"<bullet_point2>\"]}"
-    )
+    with open(Path(__file__).parent / "data" / "prompt.txt") as fp:
+        system_msgs = [line.strip() for line in fp.readlines()]
 
     user_message = transcript.result
 
     summary_result = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model="gpt-3.5-turbo-0613",
         messages=[
             *[{"role": "system", "content": system_msg} for system_msg in system_msgs],
             {"role": "user", "content": user_message}
         ]
     )
 
-    [choice] = summary_result["choices"]
-    data = json.loads(choice["message"]["content"])
+    try:
+        [choice] = summary_result["choices"]
+        data = json.loads(choice["message"]["content"])
+    except IndexError:
+        _logger.error(f"OpenAI returned more than one or no choices: {summary_result}")
+        raise
+    except json.JSONDecodeError:
+        _logger.error(f'OpenAI returned invalid JSON: {choice["message"]["content"]}')
+        raise
+
+    language_stmt = select(Language).where(Language.ietf_tag == data["language"])
+    if not (language := session.scalars(language_stmt).one_or_none()):
+        _logger.warning(f"Could not find language with ietf_tag {data['language']}")
+    else:
+        transcript.input_language = language
+        session.add(transcript)
+
     summary = Summary(
         transcript = transcript,
         topics = [Topic(text=text) for text in data["topics"]],
