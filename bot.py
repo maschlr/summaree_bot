@@ -5,7 +5,7 @@ from functools import wraps
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from telegram import ForceReply, Update
+from telegram import ForceReply, Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 import summaree_bot.logging
@@ -73,19 +73,19 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
     languages = session.scalars(stmt).all()
 
     def msg(prefix, target_languages=languages):
-        return f"{prefix}:" + "\n\t".join(f"{lang.ietf_tag} ({lang.name})" for lang in target_languages)
+        return prefix + "\n\t".join(f"{lang.ietf_tag} ({lang.name})" for lang in target_languages)
 
     try:
         if context.args is None:
             raise IndexError
         target_language_ietf_tag = context.args[0].lower()
         stmt = select(Language).where(Language.ietf_tag == target_language_ietf_tag)
-        if target_language := session.scalars(stmt).one_or_none():
-            chat = session.get(TelegramChat, update.effective_chat.id)
-            if chat is None:
+        if target_language := session.scalar(stmt):
+            if not (chat := session.get(TelegramChat, update.effective_chat.id)):
                 return
-            elif chat.language != target_language:
+            if chat.language != target_language:
                 chat.language = target_language
+                session.commit()
                 await update.message.reply_html(
                     f"Target language successfully set to: {target_language_ietf_tag} ({target_language.name})",
                     reply_markup=ForceReply(selective=True),
@@ -95,7 +95,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
                 other_available_languages = session.scalars(other_available_languages_stmt).all()
                 answer = (
                     f"This language is already configured as the target language :{chat.language.ietf_tag} ({chat.language.name})\n"
-                    "Other available languages are"
+                    "Other available languages are:\n\n"
                 )
                 
                 await update.message.reply_html(
@@ -103,13 +103,17 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
                     reply_markup=ForceReply(selective=True),
                 )
         else:
+            prefix = (
+                "Unknown target language. Set your target language with `/lang language`.\n"
+                "Available laguages are:\n\n"
+            )
             await update.message.reply_html(
-                msg("Available target languages"),
+                msg(prefix),
                 reply_markup=ForceReply(selective=True),
             )
     except IndexError:
         await update.message.reply_html(
-            msg("Please type your target language"),
+            msg("Set your target language with `/lang language`. Available languages are: \n\n"),
             reply_markup=ForceReply(selective=True),
         )
 
@@ -158,7 +162,6 @@ async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE, session:
     else:
         await update.message.reply_text(MSG)
 
-
 def main() -> None:
     check_database_languages()
 
@@ -170,11 +173,24 @@ def main() -> None:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set.")
 
     # on different commands - answer in Telegram
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("lang", set_lang))
-    # TODO: add /help command
-    # TODO: add commands to bot menu
+    commands_to_set = []
+    for func, command, description in (
+        (start, "start", "Say hi to the bot"),
+        (set_lang, "lang", "Set default language for summaries (default is English)"),
+        (start, "help", "Show help message")
+    ):
+        application.add_handler(CommandHandler("start", start))
+        bot_command: BotCommand = BotCommand(command, description)
+        commands_to_set.append(bot_command)
+        
+        application.add_handler(CommandHandler("lang", set_lang))
 
+    async def post_init(self):
+        await self.bot.delete_my_commands()
+        await self.bot.set_my_commands(commands_to_set)
+    
+    application.post_init = post_init
+    
     # on non command i.e message - echo the message on Telegram
     application.add_handler(MessageHandler(filters.VOICE, raison_d_etre))
     application.add_handler(MessageHandler(filters.ALL & ~filters.VOICE & ~filters.COMMAND, catch_all))
@@ -186,4 +202,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
