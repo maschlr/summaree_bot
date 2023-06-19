@@ -43,7 +43,7 @@ class TelegramUser(Base):
     is_bot: Mapped[bool] = mapped_column(default=False)
     first_name: Mapped[str]
     last_name: Mapped[Optional[str]]
-    username: Mapped[str]
+    username: Mapped[Optional[str]]
     language_code: Mapped[Optional[str]]
     is_premium: Mapped[Optional[bool]]
 
