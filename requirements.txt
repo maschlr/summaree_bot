@@ -3,4 +3,4 @@ openai
 python-dotenv
 deepl
 SQLAlchemy
-psycopg2
+psycopg2-binary
