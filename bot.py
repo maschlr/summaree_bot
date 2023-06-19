@@ -1,6 +1,7 @@
 import os
 import logging
 from functools import wraps
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -196,8 +197,19 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.ALL & ~filters.VOICE & ~filters.COMMAND, catch_all))
 
     # Run the bot until the user presses Ctrl-C
-    application.run_polling()
-    # TODO: set environment variable to run with webhook (callback url)
+    if webhook_url := os.getenv("TELEGRAM_WEBHOOK_URL"):
+        url = urlparse(webhook_url)
+
+        application.run_webhook(
+            listen="127.0.0.1",
+            port=5000,
+            url_path=url.path[1:], # omit the '/' at the beginning of the path
+            secret_token=os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", ""),
+            webhook_url=webhook_url,
+            cert=os.getenv("SSL_CERT", "") if url.scheme == "https" else ""
+        )
+    else:
+        application.run_polling()
 
 
 if __name__ == "__main__":
