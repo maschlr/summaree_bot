@@ -201,12 +201,11 @@ def main() -> None:
         url = urlparse(webhook_url)
 
         application.run_webhook(
-            listen="127.0.0.1",
-            port=5000,
+            listen="0.0.0.0",
+            port=8443,
             url_path=url.path[1:], # omit the '/' at the beginning of the path
             secret_token=os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", ""),
             webhook_url=webhook_url,
-            cert=os.getenv("SSL_CERT", "") if url.scheme == "https" else ""
         )
     else:
         application.run_polling()
