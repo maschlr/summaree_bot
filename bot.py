@@ -10,7 +10,7 @@ from telegram import ForceReply, Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 import summaree_bot.logging
-from summaree_bot.integrations import transcribe, translate, summarize, check_database_languages
+from summaree_bot.integrations import transcribe_voice, transcribe_audio, translate, summarize, check_database_languages
 from summaree_bot.models import TelegramChat, TelegramUser, Language
 from summaree_bot.models.session import add_session
 
@@ -132,15 +132,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Ses
 @add_session
 @ensure_chat
 async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Session) -> None:
-    if update.message is None or update.message.voice is None or update.effective_chat is None or update.effective_user is None:
+    if update.message is None or update.effective_chat is None or update.effective_user is None:
         _logger.warning("The update must contain a voice message.")
         return
     
     _logger.info(f"Summarizing voice message {update.message.id} from {update.effective_user.name}")
     await update.message.reply_chat_action(action="typing")
 
-    transcript = await transcribe(update, session=session)
-    summary = summarize(transcript=transcript, session=session)
+    if update.message.voice is not None:
+        transcript = transcribe_voice(update, session)
+    elif update.message.audio is not None:
+        transcript = transcribe_audio(update, session)
+    else:
+        raise ValueError("The update must contain a voice or audio message.")
+    
+    summary = summarize(transcript=await transcript, session=session)
     chat = session.get(TelegramChat, update.effective_chat.id)
     if chat is None: 
         return
@@ -186,20 +192,23 @@ def main() -> None:
         
         application.add_handler(CommandHandler("lang", set_lang))
 
-    async def post_init(self):
-        await self.bot.delete_my_commands()
-        await self.bot.set_my_commands(commands_to_set)
-    
-    application.post_init = post_init
-    
     # on non command i.e message - echo the message on Telegram
-    application.add_handler(MessageHandler(filters.VOICE, raison_d_etre))
-    application.add_handler(MessageHandler(filters.ALL & ~filters.VOICE & ~filters.COMMAND, catch_all))
+    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, raison_d_etre))
+    application.add_handler(MessageHandler(filters.ALL & ~filters.VOICE & ~filters.AUDIO & ~filters.COMMAND, catch_all))
 
+    # all are coroutines (async/await)
+    post_init_fncs = [
+        ["delete_my_commands"],
+        ["set_my_commands", commands_to_set]
+    ]
+    async def post_init(self):
+        for fnc, *args in post_init_fncs:
+            fnc = getattr(self.bot, fnc)
+            await fnc(*args)
+    application.post_init = post_init
     # Run the bot until the user presses Ctrl-C
-    if webhook_url := os.getenv("TELEGRAM_WEBHOOK_URL"):
+    if webhook_url := os.getenv("TELEGRAM_WEBHOOK_URL"):        
         url = urlparse(webhook_url)
-
         application.run_webhook(
             listen="0.0.0.0",
             port=8443,
@@ -208,6 +217,7 @@ def main() -> None:
             webhook_url=webhook_url,
         )
     else:
+        post_init_fncs.append(["delete_webhook"])
         application.run_polling()
 
 

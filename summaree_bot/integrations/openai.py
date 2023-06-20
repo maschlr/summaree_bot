@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 import hashlib
 import json
+import re
+from functools import wraps
 
 import openai
 import telegram
@@ -12,7 +14,11 @@ from sqlalchemy.orm import Session
 
 from ..models import Transcript, Summary, Topic, Language
 
+from typing import Union, Callable, Optional, Coroutine, Any
+
 _logger = logging.getLogger(__name__)
+
+mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 
 
 def transcode_to_mp3(file_path: Path) -> Path:
@@ -25,58 +31,100 @@ def transcode_to_mp3(file_path: Path) -> Path:
     _logger.info(f'Transcoding successfully finished: {mp3_filepath}')
     return mp3_filepath
 
+def check_file_unique_id(fnc) -> Callable[[telegram.Update, Session], Coroutine[Any, Any, Transcript]]:
+    @wraps(fnc)
+    async def wrapper(update: telegram.Update, session: Session) -> Transcript:
+        if update.message is None:
+            raise ValueError("The update must contain a message.")
 
-async def transcribe(update: telegram.Update, session: Session) -> Transcript:
-    if update.message is None or update.message.voice is None:
+        for voice_or_audio in (
+            update.message.voice,
+            update.message.audio
+        ):
+            if voice_or_audio is not None:
+                file_unique_id = voice_or_audio.file_unique_id
+                break
+
+        stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
+        if (transcript := session.scalars(stmt).one_or_none()):
+            _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
+            return transcript
+        else:
+            return await fnc(update, session)
+
+    return wrapper
+
+@check_file_unique_id
+async def transcribe_audio(update: telegram.Update, session: Session) -> Transcript:
+    if not update.message or not update.message.audio:
+        raise ValueError("The update must contain an audio message.")
+    
+    # TODO: is a file_name always present?
+    file_name = update.message.audio.file_name
+    return await transcribe_file(file_name, update.message.audio, session)
+
+@check_file_unique_id
+async def transcribe_voice(update: telegram.Update, session: Session) -> Transcript:
+    if not update.message or not update.message.voice:
         raise ValueError("The update must contain a voice message.")
+    
+    match = None
+    if mime_type := update.message.voice.mime_type:
+        match = mimetype_pattern.match(mime_type)
+    if match is None:
+        msg = f"Couldn't match mime_type: {update.message.voice.mime_type} to pattern: {mimetype_pattern}"
+        raise ValueError(msg)
 
-    stmt = select(Transcript).where(Transcript.file_unique_id == update.message.voice.file_unique_id)
-    if (transcript := session.scalars(stmt).one_or_none()):
-        _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {update.message.voice.file_unique_id}")
-        return transcript
+    file_name = f"{update.message.voice.file_unique_id}.{match.group('subtype')}"
+    return await transcribe_file(file_name, update.message.voice, session)
 
+
+async def transcribe_file(file_name: Optional[str], voice_or_audio: Union[telegram.Voice, telegram.Audio], session: Session) -> Transcript:
+    if file_name is None:
+        message = "TODO: didn't get a file name. Determine file/audio format from binary data and choose a file name."
+        raise ValueError(message)
+    elif voice_or_audio is None:
+        raise ValueError("Arg voice_or_audio is None. Can only transcribe when getting passed a voice or audio message.")
+    
     # create a temporary folder
     with tempfile.TemporaryDirectory() as tempdir_path_str:
         # download the .ogg file to the folder
         tempdir_path = Path(tempdir_path_str)
-        file_path = tempdir_path / f"{update.message.voice.file_unique_id}.ogg"
-        file = await update.message.voice.get_file()
+        file_path = tempdir_path / file_name
+        file = await voice_or_audio.get_file()
         await file.download_to_drive(file_path)
 
-        return transcribe_file(file_path, update.message.voice, session)
-
-def transcribe_file(file_path: Path, voice: telegram.Voice, session: Session) -> Transcript:
-    with open(file_path, "rb") as fp:
-        m = hashlib.sha256()
-        while chunk := fp.read(8192):
-            m.update(chunk)
-        sha256_hash = m.hexdigest()
-        stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
-        if transcript := session.scalars(stmt).one_or_none():
-            _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
-            return transcript
+        with open(file_path, "rb") as fp:
+            m = hashlib.sha256()
+            while chunk := fp.read(8192):
+                m.update(chunk)
+            sha256_hash = m.hexdigest()
+            stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
+            if transcript := session.scalars(stmt).one_or_none():
+                _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
+                return transcript
     
-    # convert the .ogg file to .mp3
-    if file_path.suffix != "mp3":
-        mp3_file_path = transcode_to_mp3(file_path)
-    else:
-        mp3_file_path = file_path
-        
-    # send the .mp3 file to openai whisper, create a db entry and return it
-    with open(mp3_file_path, "rb") as mp3_fp:
-        transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
-        transcript = Transcript(
-            file_unique_id=voice.file_unique_id,
-            file_id=voice.file_id,
-            sha256_hash=sha256_hash,
-            duration=voice.duration,
-            mime_type=voice.mime_type,
-            file_size=voice.file_size,
-            result=transcription_result["text"]
-        )
-        session.add(transcript)
-        session.commit()
-        return transcript
+        # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
+        if file_path.suffix[1:] not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"}:
+            supported_file_path = transcode_to_mp3(file_path)
+        else:
+            supported_file_path = file_path
+            
+        # send the .mp3 file to openai whisper, create a db entry and return it
+        with open(supported_file_path, "rb") as mp3_fp:
+            transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
+            transcript = Transcript(
+                file_unique_id=voice_or_audio.file_unique_id,
+                file_id=voice_or_audio.file_id,
+                sha256_hash=sha256_hash,
+                duration=voice_or_audio.duration,
+                mime_type=voice_or_audio.mime_type,
+                file_size=voice_or_audio.file_size,
+                result=transcription_result["text"]
+            )
+            session.add(transcript)
+            session.commit()
+            return transcript
 
 def summarize(transcript: Transcript, session: Session) -> Summary:
     # if the transcript is already summarized return it
