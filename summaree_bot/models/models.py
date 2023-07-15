@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from typing import List, Optional
-from sqlalchemy import ForeignKey, Table, Column, select
+from sqlalchemy import ForeignKey, Table, Column, select, MetaData
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped, Session
 from sqlalchemy.orm import mapped_column
@@ -11,6 +11,15 @@ class Base(DeclarativeBase):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    #https://alembic.sqlalchemy.org/en/latest/naming.html#integration-of-naming-conventions-into-operations-autogenerate
+    metadata = MetaData(naming_convention={
+        "ix": "ix_%(column_0_label)s",
+        "uq": "uq_%(table_name)s_%(column_0_name)s",
+        "ck": "ck_%(table_name)s_`%(constraint_name)s`",
+        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+        "pk": "pk_%(table_name)s"
+    })
+
 chats_to_users_rel = Table(
     "chats_to_users_rel",
     Base.metadata,
@@ -18,6 +27,25 @@ chats_to_users_rel = Table(
     Column("chat_id", ForeignKey("telegram_chat.id"), primary_key=True),
 )
 
+class User(Base):
+    __tablename__ = "user"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    telegram_user_id: Mapped[int] = mapped_column(ForeignKey("telegram_user.id"))
+    telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
+    email: Mapped[str]
+    active: Mapped[bool] = mapped_column(default=False)
+    tokens: Mapped[List["Token"]] = relationship(back_populates="user")
+
+class Token(Base):
+    __tablename__ = "token"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    value: Mapped[str]
+    expires_at: Mapped[Optional[datetime]]
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user: Mapped["User"] = relationship(back_populates="tokens")
 
 class Language(Base):
     # DeepL supported target languages
@@ -46,6 +74,8 @@ class TelegramUser(Base):
     username: Mapped[Optional[str]]
     language_code: Mapped[Optional[str]]
     is_premium: Mapped[Optional[bool]]
+
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="telegram_user")
 
     # use str of Model here to avoid linter warning
     chats: Mapped[set["TelegramChat"]] = relationship(
