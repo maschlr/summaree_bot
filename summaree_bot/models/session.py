@@ -3,11 +3,8 @@ from functools import wraps
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from .models import Base
-
 if db_url := os.getenv("DB_URL"):
     engine = create_engine(db_url)
-    Base.metadata.create_all(engine)
 else:
     raise ValueError("DB_URL environment variable not set. Cannot initialize database engine.")
 
