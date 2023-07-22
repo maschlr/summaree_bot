@@ -1,24 +1,25 @@
 from datetime import datetime
-
 from typing import List, Optional
-from sqlalchemy import ForeignKey, Table, Column, select, MetaData
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import Mapped, Session
-from sqlalchemy.orm import mapped_column
-from sqlalchemy.orm import relationship
+
+from sqlalchemy import Column, ForeignKey, MetaData, Table, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+
 
 class Base(DeclarativeBase):
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    #https://alembic.sqlalchemy.org/en/latest/naming.html#integration-of-naming-conventions-into-operations-autogenerate
-    metadata = MetaData(naming_convention={
-        "ix": "ix_%(column_0_label)s",
-        "uq": "uq_%(table_name)s_%(column_0_name)s",
-        "ck": "ck_%(table_name)s_`%(constraint_name)s`",
-        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-        "pk": "pk_%(table_name)s"
-    })
+    # https://alembic.sqlalchemy.org/en/latest/naming.html#integration-of-naming-conventions-into-operations-autogenerate
+    metadata = MetaData(
+        naming_convention={
+            "ix": "ix_%(column_0_label)s",
+            "uq": "uq_%(table_name)s_%(column_0_name)s",
+            "ck": "ck_%(table_name)s_`%(constraint_name)s`",
+            "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+            "pk": "pk_%(table_name)s",
+        }
+    )
+
 
 chats_to_users_rel = Table(
     "chats_to_users_rel",
@@ -26,6 +27,7 @@ chats_to_users_rel = Table(
     Column("user_id", ForeignKey("telegram_user.id"), primary_key=True),
     Column("chat_id", ForeignKey("telegram_chat.id"), primary_key=True),
 )
+
 
 class User(Base):
     __tablename__ = "user"
@@ -37,6 +39,7 @@ class User(Base):
     active: Mapped[bool] = mapped_column(default=False)
     tokens: Mapped[List["Token"]] = relationship(back_populates="user")
 
+
 class Token(Base):
     __tablename__ = "token"
 
@@ -46,6 +49,7 @@ class Token(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     user: Mapped["User"] = relationship(back_populates="tokens")
+
 
 class Language(Base):
     # DeepL supported target languages
@@ -78,9 +82,8 @@ class TelegramUser(Base):
     user: Mapped[Optional["User"]] = relationship("User", back_populates="telegram_user")
 
     # use str of Model here to avoid linter warning
-    chats: Mapped[set["TelegramChat"]] = relationship(
-        secondary=chats_to_users_rel, back_populates="users"
-    )
+    chats: Mapped[set["TelegramChat"]] = relationship(secondary=chats_to_users_rel, back_populates="users")
+
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"
@@ -91,9 +94,8 @@ class TelegramChat(Base):
     language: Mapped["Language"] = relationship(back_populates="chats")
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
 
-    users: Mapped[set["TelegramUser"]] = relationship(
-        secondary=chats_to_users_rel, back_populates="chats"
-    )
+    users: Mapped[set["TelegramUser"]] = relationship(secondary=chats_to_users_rel, back_populates="chats")
+
 
 class BotMessage(Base):
     __tablename__ = "bot_message"
@@ -102,17 +104,17 @@ class BotMessage(Base):
 
     chat_id: Mapped[int] = mapped_column(ForeignKey("telegram_chat.id"))
     chat: Mapped["TelegramChat"] = relationship(back_populates="messages")
-    
+
     summary_id: Mapped[Optional[int]] = mapped_column(ForeignKey("summary.id"))
     summary: Mapped[Optional["Summary"]] = relationship(back_populates="messages")
-    
+
 
 class Transcript(Base):
     __tablename__ = "transcript"
     id: Mapped[int] = mapped_column(primary_key=True)
     file_id: Mapped[str]
     file_unique_id: Mapped[str] = mapped_column(unique=True)
-    sha256_hash: Mapped[str] = mapped_column(unique=True) #hex
+    sha256_hash: Mapped[str] = mapped_column(unique=True)  # hex
     duration: Mapped[int]
     mime_type: Mapped[str]
     file_size: Mapped[int]
@@ -125,10 +127,11 @@ class Transcript(Base):
     # summary is created after transcribing
     summary: Mapped["Summary"] = relationship(back_populates="transcript")
 
+
 class Summary(Base):
     __tablename__ = "summary"
     id: Mapped[int] = mapped_column(primary_key=True)
-    
+
     transcript_id = mapped_column(ForeignKey("transcript.id"))
     transcript: Mapped["Transcript"] = relationship(back_populates="summary")
 
@@ -147,6 +150,7 @@ class Topic(Base):
     # one topic can be translated to multiple languages
     translations: Mapped[List["Translation"]] = relationship(back_populates="topic")
 
+
 class Translation(Base):
     __tablename__ = "translation"
     # translation always has topic as input
@@ -156,7 +160,7 @@ class Translation(Base):
     # source_text = topic.text
     target_lang_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
     target_lang: Mapped["Language"] = relationship(back_populates="translations")
-    target_text: Mapped[str] 
+    target_text: Mapped[str]
 
     topic_id: Mapped[int] = mapped_column(ForeignKey("topic.id"))
     topic: Mapped["Topic"] = relationship(back_populates="translations")

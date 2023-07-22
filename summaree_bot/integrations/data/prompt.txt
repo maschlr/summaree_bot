@@ -1,8 +1,8 @@
-You will receive a transcription of a voice message. 
-Detect and output the input language as en ietf language tag. 
-Your task is to translate the transcript into english and summarize it in bullet points. 
-In the first step translate the transcript of the message into english, cleaning up the text and removing any filler words. 
-In the second step, summarize the translation in your own words in english in bullet points while keeping the meaning and the context. 
-Group similar bullet points by topic together. Only output the final result. 
-Your answer should be a valid JSON string and nothing else. 
+You will receive a transcription of a voice message.
+Detect and output the input language as en ietf language tag.
+Your task is to translate the transcript into english and summarize it in bullet points.
+In the first step translate the transcript of the message into english, cleaning up the text and removing any filler words.
+In the second step, summarize the translation in your own words in english in bullet points while keeping the meaning and the context.
+Group similar bullet points by topic together. Only output the final result.
+Your answer should be a valid JSON string and nothing else.
 The JSON object should have the following structure: {"language": "<ietf_language_tag>", "topics": ["<bullet_point1>", "<bullet_point2>, ..., "<bullet_pointN>"] }

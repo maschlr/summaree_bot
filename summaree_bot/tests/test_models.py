@@ -1,8 +1,9 @@
 from sqlalchemy import select
 
-from summaree_bot.models import TelegramChat, TelegramUser, Language
+from summaree_bot.models import Language, TelegramChat, TelegramUser
 
 from .common import Common
+
 
 class TestTelegramChat(Common):
     def test_00_no_chat_record(self):
@@ -15,16 +16,8 @@ class TestTelegramChat(Common):
     def test__01_create_chat_with_users(self):
         with self.Session.begin() as session:
             users = {
-                TelegramUser(
-                    first_name="user1", 
-                    username="user1", 
-                    language_code="en"
-                ),
-                TelegramUser(
-                    first_name="user2",
-                    username="user2",
-                    language_code="ru"
-                )
+                TelegramUser(first_name="user1", username="user1", language_code="en"),
+                TelegramUser(first_name="user2", username="user2", language_code="ru"),
             }
             session.add_all(users)
 
@@ -32,7 +25,7 @@ class TestTelegramChat(Common):
             self.assertEqual(language.ietf_tag, "en")
             chat = TelegramChat(type="private", users=users, language=language)
             session.add(chat)
-        
+
         stmt_chat = select(TelegramChat)
         stmt_users = select(TelegramUser)
         with self.Session.begin() as session:

@@ -1,12 +1,13 @@
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 from sqlalchemy import select
 
-from summaree_bot.integrations.openai import transcribe_file, summarize
-from summaree_bot.models import Transcript, Summary
+from summaree_bot.integrations.openai import summarize, transcribe_file
+from summaree_bot.models import Summary, Transcript
 
 from .common import Common
+
 
 class MockVoice:
     def __init__(self):
@@ -28,7 +29,7 @@ class TestOpenAI(Common):
         voices = [MockVoice() for _ in cls.mp3_file_paths]
 
         with cls.Session.begin() as session:
-            transcripts = [transcribe_file(file_path, voice, session) for file_path, voice in zip(cls.mp3_file_paths, voices)]
+            [transcribe_file(file_path, voice, session) for file_path, voice in zip(cls.mp3_file_paths, voices)]
 
         return result
 
@@ -54,7 +55,7 @@ class TestOpenAI(Common):
             for transcript in session.scalars(select(Transcript)).all():
                 summary = summarize(transcript, session)
                 self.assertTrue(summary in summaries)
-            
+
             # assert that the number of summaries in the db is the same
             summaries = self.Session.scalars(select(Summary)).all()
             self.assertEqual(len(summaries), num_summaries)

@@ -1,27 +1,38 @@
-import os
 import logging
+import os
 from functools import wraps
 from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from telegram import BotCommand, ForceReply, Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-from telegram import ForceReply, Update, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-
-import summaree_bot.logging
-from summaree_bot.integrations import transcribe_voice, transcribe_audio, translate, summarize, check_database_languages
-from summaree_bot.models import TelegramChat, TelegramUser, Language
+import summaree_bot.logging  # noqa
+from summaree_bot.integrations import (
+    check_database_languages,
+    summarize,
+    transcribe_audio,
+    transcribe_voice,
+    translate,
+)
+from summaree_bot.models import Language, TelegramChat, TelegramUser
 from summaree_bot.models.session import add_session
-
 
 # Enable logging
 _logger = logging.getLogger(__name__)
 
 MSG = (
     "Send me a voice message and I will summarize it for you. "
-    "You can forward messages from other chats to me, even if they are in other apps."            
+    "You can forward messages from other chats to me, even if they are in other apps."
 )
+
 
 def ensure_chat(fnc):
     @wraps(fnc)
@@ -30,27 +41,33 @@ def ensure_chat(fnc):
         update = kwargs.get("update", args[0])
         # session is in kwargs
         session = kwargs.get("session")
-        
+
         if not (user := session.get(TelegramUser, update.effective_user.id)):
-            attrs = ["id", "first_name", "last_name", "username", "language_code", "is_premium", "is_bot"]
+            attrs = [
+                "id",
+                "first_name",
+                "last_name",
+                "username",
+                "language_code",
+                "is_premium",
+                "is_bot",
+            ]
             user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in attrs}
-            
-            user = TelegramUser(
-                **user_kwargs
-            )
-            session.add(user)        
-        
+
+            user = TelegramUser(**user_kwargs)
+            session.add(user)
+
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
             # standard is english language
             en_lang = Language.get_default_language(session)
             if en_lang is None:
                 raise ValueError("English language not found in database.")
-                
+
             chat = TelegramChat(
                 id=update.effective_chat.id,
                 type=update.effective_chat.type,
                 language=en_lang,
-                users={user}
+                users={user},
             )
             session.add(chat)
             # TODO: emit welcome message
@@ -58,6 +75,7 @@ def ensure_chat(fnc):
             chat.users.append(user)
 
         return fnc(*args, **kwargs)
+
     return wrapper
 
 
@@ -69,7 +87,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
     """Set the target language when /lang {language_code} is issued."""
     if update.message is None or update.effective_chat is None:
         raise ValueError("The update must contain a message.")
-    
+
     stmt = select(Language)
     languages = session.scalars(stmt).all()
 
@@ -92,13 +110,14 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
                     reply_markup=ForceReply(selective=True),
                 )
             else:
-                other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)  
+                other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)
                 other_available_languages = session.scalars(other_available_languages_stmt).all()
                 answer = (
-                    f"This language is already configured as the target language :{chat.language.ietf_tag} ({chat.language.name})\n"
+                    "This language is already configured as the target language: "
+                    f"{chat.language.ietf_tag} ({chat.language.name})\n"
                     "Other available languages are:\n\n"
                 )
-                
+
                 await update.message.reply_html(
                     msg(answer, other_available_languages),
                     reply_markup=ForceReply(selective=True),
@@ -118,6 +137,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, session: 
             reply_markup=ForceReply(selective=True),
         )
 
+
 @add_session
 @ensure_chat
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Session) -> None:
@@ -129,13 +149,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Ses
         reply_markup=ForceReply(selective=True),
     )
 
+
 @add_session
 @ensure_chat
 async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Session) -> None:
     if update.message is None or update.effective_chat is None or update.effective_user is None:
         _logger.warning("The update must contain a voice message.")
         return
-    
+
     _logger.info(f"Summarizing voice message {update.message.id} from {update.effective_user.name}")
     await update.message.reply_chat_action(action="typing")
 
@@ -145,14 +166,16 @@ async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
         transcript = transcribe_audio(update, session)
     else:
         raise ValueError("The update must contain a voice or audio message.")
-    
+
     summary = summarize(transcript=await transcript, session=session)
     chat = session.get(TelegramChat, update.effective_chat.id)
-    if chat is None: 
+    if chat is None:
         return
     en_lang = Language.get_default_language(session)
     if chat.language != en_lang:
-        translations = [translate(session=session, target_language=chat.language, topic=topic) for topic in summary.topics]
+        translations = [
+            translate(session=session, target_language=chat.language, topic=topic) for topic in summary.topics
+        ]
         for translation in translations:
             session.add(translation)
         msg = "\n".join(f"- {translation.target_text}" for translation in translations)
@@ -161,6 +184,7 @@ async def raison_d_etre(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
 
     await update.message.reply_text(msg)
 
+
 @add_session
 @ensure_chat
 async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE, session: Session) -> None:
@@ -168,6 +192,7 @@ async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE, session:
         raise ValueError("The update must contain a message.")
     else:
         await update.message.reply_text(MSG)
+
 
 def main() -> None:
     check_database_languages()
@@ -184,35 +209,32 @@ def main() -> None:
     for func, command, description in (
         (start, "start", "Say hi to the bot"),
         (set_lang, "lang", "Set default language for summaries (default is English)"),
-        (start, "help", "Show help message")
+        (start, "help", "Show help message"),
     ):
-        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler(command, func))
         bot_command: BotCommand = BotCommand(command, description)
         commands_to_set.append(bot_command)
-        
-        application.add_handler(CommandHandler("lang", set_lang))
 
     # on non command i.e message - echo the message on Telegram
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, raison_d_etre))
     application.add_handler(MessageHandler(filters.ALL & ~filters.VOICE & ~filters.AUDIO & ~filters.COMMAND, catch_all))
 
     # all are coroutines (async/await)
-    post_init_fncs = [
-        ["delete_my_commands"],
-        ["set_my_commands", commands_to_set]
-    ]
+    post_init_fncs = [["delete_my_commands"], ["set_my_commands", commands_to_set]]
+
     async def post_init(self):
         for fnc, *args in post_init_fncs:
             fnc = getattr(self.bot, fnc)
             await fnc(*args)
+
     application.post_init = post_init
     # Run the bot until the user presses Ctrl-C
-    if webhook_url := os.getenv("TELEGRAM_WEBHOOK_URL"):        
+    if webhook_url := os.getenv("TELEGRAM_WEBHOOK_URL"):
         url = urlparse(webhook_url)
         application.run_webhook(
             listen="0.0.0.0",
             port=8443,
-            url_path=url.path[1:], # omit the '/' at the beginning of the path
+            url_path=url.path[1:],  # omit the '/' at the beginning of the path
             secret_token=os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", ""),
             webhook_url=webhook_url,
         )

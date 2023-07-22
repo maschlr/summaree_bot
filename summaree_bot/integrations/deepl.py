@@ -1,14 +1,12 @@
 import os
 from dataclasses import dataclass, field
+from typing import Iterator, Optional
 
 import deepl
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from typing import Optional, Iterator
-
-from ..models import Language, Translation, Topic
+from ..models import Language, Topic, Translation
 from ..models.session import add_session
 
 deepl_token: Optional[str] = os.getenv("DEEPL_TOKEN")
@@ -44,9 +42,7 @@ class DeepLLanguages:
         self.lang_code_to_language = {lang.code: lang for lang in self}
         double_lang_codes = {"en": "EN-US", "pt": "PT-BR"}
         self.ietf_tag_to_language = {
-            lang.ietf_language_tag: lang
-            for lang in self
-            if lang.ietf_language_tag not in double_lang_codes
+            lang.ietf_language_tag: lang for lang in self if lang.ietf_language_tag not in double_lang_codes
         }
         for ietf_tag, lang in double_lang_codes.items():
             self.ietf_tag_to_language[ietf_tag] = self.lang_code_to_language[lang]
@@ -60,17 +56,9 @@ available_target_languages = DeepLLanguages(
 )
 
 
-def translate(
-    session: Session,
-    target_language: Language,
-    topic: Topic
-) -> Translation:
-    stmt = (
-        select(Translation)
-        .where(Translation.target_lang == target_language)
-        .where(Translation.topic == topic)
-    )
-    
+def translate(session: Session, target_language: Language, topic: Topic) -> Translation:
+    stmt = select(Translation).where(Translation.target_lang == target_language).where(Translation.topic == topic)
+
     if translation := session.scalars(stmt).one_or_none():
         return translation
 
@@ -98,4 +86,4 @@ def check_database_languages(session: Session):
                     ietf_tag=ietf_tag,
                     code=lang.code,
                 )
-            ) 
+            )

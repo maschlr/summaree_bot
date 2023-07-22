@@ -5,3 +5,4 @@ deepl
 SQLAlchemy
 psycopg2-binary
 alembic
+pre-commit
