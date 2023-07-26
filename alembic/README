@@ -1,4 +1,0 @@
-Generic single-database configuration.
-
-Setup:
-- configure database url in `alembic.ini`

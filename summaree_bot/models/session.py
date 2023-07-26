@@ -14,9 +14,13 @@ else:
 def add_session(fnc):
     @wraps(fnc)
     def wrapper(*args, **kwargs):
+        context = kwargs.get("context", args[1])
+        if hasattr(context, "db_session"):
+            return fnc(*args, **kwargs)
+
         Session = sessionmaker(bind=engine)
         with Session.begin() as session:
-            kwargs["session"] = session
+            context.db_session = session
             result = fnc(*args, **kwargs)
         return result
 

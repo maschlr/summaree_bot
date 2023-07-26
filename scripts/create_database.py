@@ -1,5 +1,4 @@
 # This script is used to create the database and stamp it with the latest revision.
-# python -m scrips.create_database
 from pathlib import Path
 
 # get the environment variables

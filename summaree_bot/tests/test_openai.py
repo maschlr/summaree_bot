@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -17,9 +18,10 @@ class MockVoice:
         self.file_size = 123456
 
 
+# TODO. test failing due to asyncio call; refactor: https://docs.python.org/3.8/library/unittest.html#unittest.IsolatedAsyncioTestCase
 class TestOpenAI(Common):
     @classmethod
-    def setUpClass(cls):
+    async def setUpClass(cls):
         result = super().setUpClass()
 
         # create transcripts
@@ -29,7 +31,10 @@ class TestOpenAI(Common):
         voices = [MockVoice() for _ in cls.mp3_file_paths]
 
         with cls.Session.begin() as session:
-            [transcribe_file(file_path, voice, session) for file_path, voice in zip(cls.mp3_file_paths, voices)]
+            await asyncio.wait(
+                transcribe_file(file_path, voice, session)
+                for file_path, voice in zip(cls.mp3_file_paths, voices, strict=True)
+            )
 
         return result
 

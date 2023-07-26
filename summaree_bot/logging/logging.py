@@ -8,3 +8,5 @@ root_dir = Path(__file__).parent
 fh = logging.FileHandler(root_dir / "summaree_bot.log")
 fh.setFormatter(formatter)
 logging.getLogger().addHandler(fh)
+
+getLogger = logging.getLogger

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Language, Topic, Translation
-from ..models.session import add_session
+from ..models.session import engine, sessionmaker
 
 deepl_token: Optional[str] = os.getenv("DEEPL_TOKEN")
 translator = deepl.Translator(deepl_token)
@@ -75,15 +75,16 @@ def translate(session: Session, target_language: Language, topic: Topic) -> Tran
     return translation
 
 
-@add_session
-def check_database_languages(session: Session):
-    for ietf_tag, lang in available_target_languages.ietf_tag_to_language.items():
-        stmt = select(Language).where(Language.ietf_tag == ietf_tag)
-        if not session.execute(stmt).one_or_none():
-            session.add(
-                Language(
-                    name=lang.name,
-                    ietf_tag=ietf_tag,
-                    code=lang.code,
+def check_database_languages():
+    Session = sessionmaker(bind=engine)
+    with Session.begin() as session:
+        for ietf_tag, lang in available_target_languages.ietf_tag_to_language.items():
+            stmt = select(Language).where(Language.ietf_tag == ietf_tag)
+            if not session.execute(stmt).one_or_none():
+                session.add(
+                    Language(
+                        name=lang.name,
+                        ietf_tag=ietf_tag,
+                        code=lang.code,
+                    )
                 )
-            )

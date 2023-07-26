@@ -1,8 +1,9 @@
-python-telegram-bot[webhooks]
+python-telegram-bot[webhooks,callback-data]
 openai
 python-dotenv
 deepl
 SQLAlchemy
 psycopg2-binary
 alembic
-pre-commit
+Jinja2
+dnspython

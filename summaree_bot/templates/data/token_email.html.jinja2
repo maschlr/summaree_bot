@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>{{ subject }}</title>
+</head>
+<body>
+    <h1>Hello, {{ name }}!</h1>
+    <p>thank you for registering your email to use <a href="https://summar.ee">summar.ee bot 🤖</a></p>
+    <p>
+        To activate your account, you can click this <a href="https://t.me/{{ bot_name }}?start={{ start_callback }}">link</a>
+        (you must be logged into telegram with the same account that you registered this email with)
+    </p>
+    <p>
+        Alternatively you can activate the account by copying the token into the telegram chat with the bot:
+        <code>/activate {{ token }}</code>
+    </p>
+    <p>Have fun summarizing!</p>
+
+</body>
+</html>

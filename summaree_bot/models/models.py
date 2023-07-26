@@ -1,6 +1,9 @@
+import enum
+import secrets
 from datetime import datetime
 from typing import List, Optional
 
+import sqlalchemy
 from sqlalchemy import Column, ForeignKey, MetaData, Table, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
@@ -36,19 +39,20 @@ class User(Base):
     telegram_user_id: Mapped[int] = mapped_column(ForeignKey("telegram_user.id"))
     telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
     email: Mapped[str]
-    active: Mapped[bool] = mapped_column(default=False)
-    tokens: Mapped[List["Token"]] = relationship(back_populates="user")
+    token: Mapped["Token"] = relationship(back_populates="user")
+    subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="user")
 
 
 class Token(Base):
     __tablename__ = "token"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    value: Mapped[str]
+    value: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4))
+    active: Mapped[bool] = mapped_column(default=False)
     expires_at: Mapped[Optional[datetime]]
 
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
-    user: Mapped["User"] = relationship(back_populates="tokens")
+    user: Mapped["User"] = relationship(back_populates="token")
 
 
 class Language(Base):
@@ -90,7 +94,8 @@ class TelegramChat(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str]
 
-    language_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
+    # language = None means translate to language of transcript
+    language_id: Mapped[Optional[int]] = mapped_column(ForeignKey("language.id"))
     language: Mapped["Language"] = relationship(back_populates="chats")
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
 
@@ -164,3 +169,25 @@ class Translation(Base):
 
     topic_id: Mapped[int] = mapped_column(ForeignKey("topic.id"))
     topic: Mapped["Topic"] = relationship(back_populates="translations")
+
+
+class SubscriptionStatus(enum.Enum):
+    pending = 0
+    active = 1
+    expired = 2
+    canceled = 3
+    extended = 4
+
+
+class Subscription(Base):
+    __tablename__ = "subscription"
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user: Mapped["User"] = relationship(back_populates="subscriptions")
+
+    start_date: Mapped[Optional[datetime]]
+    end_date: Mapped[Optional[datetime]]
+    status: Mapped[SubscriptionStatus] = mapped_column(
+        sqlalchemy.Enum(SubscriptionStatus), default=SubscriptionStatus.pending
+    )
