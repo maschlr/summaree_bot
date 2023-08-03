@@ -1,6 +1,3 @@
-import dotenv
-
-dotenv.load_dotenv()
 from .deepl import check_database_languages, translate
 from .email import Email, TokenEmail, is_valid_email
 from .openai import summarize, transcribe_audio, transcribe_voice

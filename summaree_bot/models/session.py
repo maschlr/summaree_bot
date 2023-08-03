@@ -2,7 +2,8 @@ import os
 from functools import wraps
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
+from telegram.ext import ContextTypes
 
 if db_url := os.getenv("DB_URL"):
     engine = create_engine(db_url)
@@ -25,3 +26,7 @@ def add_session(fnc):
         return result
 
     return wrapper
+
+
+class DbSessionContext(ContextTypes.DEFAULT_TYPE):
+    db_session: Session
