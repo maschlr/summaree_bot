@@ -6,8 +6,9 @@ import subprocess
 import tempfile
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Optional, Union
+from typing import Any, Callable, Coroutine, Union
 
+import magic
 import openai
 import telegram
 from sqlalchemy import select
@@ -59,8 +60,7 @@ async def transcribe_audio(update: telegram.Update, session: Session) -> Transcr
     if not update.message or not update.message.audio:
         raise ValueError("The update must contain an audio message.")
 
-    # TODO: is a file_name always present?
-    file_name = update.message.audio.file_name
+    file_name = update.message.audio.file_name or update.message.audio.file_unique_id
     return await transcribe_file(file_name, update.message.audio, session)
 
 
@@ -72,77 +72,90 @@ async def transcribe_voice(update: telegram.Update, session: Session) -> Transcr
     match = None
     if mime_type := update.message.voice.mime_type:
         match = mimetype_pattern.match(mime_type)
-    if match is None:
-        msg = f"Couldn't match mime_type: {update.message.voice.mime_type} to pattern: {mimetype_pattern}"
-        raise ValueError(msg)
 
-    file_name = f"{update.message.voice.file_unique_id}.{match.group('subtype')}"
+    if match is None:
+        file_name = update.message.voice.file_unique_id
+    else:
+        file_name = f"{update.message.voice.file_unique_id}.{match.group('subtype')}"
+
     return await transcribe_file(file_name, update.message.voice, session)
 
 
 async def transcribe_file(
-    file_name: Optional[str],
+    file_name_str: str,
     voice_or_audio: Union[telegram.Voice, telegram.Audio],
     session: Session,
 ) -> Transcript:
-    if file_name is None:
-        message = "TODO: didn't get a file name. Determine file/audio format from binary data and choose a file name."
-        raise ValueError(message)
-    elif voice_or_audio is None:
+    if voice_or_audio is None:
         raise ValueError(
             "Arg voice_or_audio is None. Can only transcribe when getting passed a voice or audio message."
         )
 
+    file_name = Path(file_name_str)
+
     # create a temporary folder
     with tempfile.TemporaryDirectory() as tempdir_path_str:
-        # download the .ogg file to the folder
+        # download the file to the folder
         tempdir_path = Path(tempdir_path_str)
         file_path = tempdir_path / file_name
         file = await voice_or_audio.get_file()
         await file.download_to_drive(file_path)
 
-        with open(file_path, "rb") as fp:
-            m = hashlib.sha256()
-            while chunk := fp.read(8192):
-                m.update(chunk)
-            sha256_hash = m.hexdigest()
-            stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
-            if transcript := session.scalars(stmt).one_or_none():
-                _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
-                return transcript
+        if not file_name.suffix:
+            mime = magic.from_file(file_path, mime=True)
+            _, suffix = mime.split("/")
+            file_path.rename(file_path.with_suffix(f".{suffix}"))
 
-        # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
-        if file_path.suffix[1:] not in {
-            "mp3",
-            "mp4",
-            "mpeg",
-            "mpga",
-            "m4a",
-            "wav",
-            "webm",
-        }:
-            supported_file_path = transcode_to_mp3(file_path)
-        else:
-            supported_file_path = file_path
+        transcript = _transcribe_file(file_path, voice_or_audio, session)
+        return transcript
 
-        # send the .mp3 file to openai whisper, create a db entry and return it
-        with open(supported_file_path, "rb") as mp3_fp:
-            transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
-            transcript = Transcript(
-                file_unique_id=voice_or_audio.file_unique_id,
-                file_id=voice_or_audio.file_id,
-                sha256_hash=sha256_hash,
-                duration=voice_or_audio.duration,
-                mime_type=voice_or_audio.mime_type,
-                file_size=voice_or_audio.file_size,
-                result=transcription_result["text"],
-            )
-            session.add(transcript)
-            session.commit()
+
+def _transcribe_file(
+    file_path: Path, voice_or_audio: Union[telegram.Voice, telegram.Audio], session: Session, commit: bool = False
+) -> Transcript:
+    with open(file_path, "rb") as fp:
+        m = hashlib.sha256()
+        while chunk := fp.read(8192):
+            m.update(chunk)
+        sha256_hash = m.hexdigest()
+        stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
+        if transcript := session.execute(stmt).scalar_one_or_none():
+            _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
             return transcript
 
+    # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
+    if file_path.suffix[1:] not in {
+        "mp3",
+        "mp4",
+        "mpeg",
+        "mpga",
+        "m4a",
+        "wav",
+        "webm",
+    }:
+        supported_file_path = transcode_to_mp3(file_path)
+    else:
+        supported_file_path = file_path
 
-def summarize(transcript: Transcript, session: Session) -> Summary:
+    # send the .mp3 file to openai whisper, create a db entry and return it
+    with open(supported_file_path, "rb") as mp3_fp:
+        transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
+        transcript = Transcript(
+            file_unique_id=voice_or_audio.file_unique_id,
+            file_id=voice_or_audio.file_id,
+            sha256_hash=sha256_hash,
+            duration=voice_or_audio.duration,
+            mime_type=voice_or_audio.mime_type,
+            file_size=voice_or_audio.file_size,
+            result=transcription_result["text"],
+        )
+        session.add(transcript)
+        if commit:
+            session.commit()
+        return transcript
+
+
+def summarize(transcript: Transcript, session: Session, commit: bool = True) -> Summary:
     # if the transcript is already summarized return it
     if transcript.summary is not None:
         return transcript.summary
@@ -170,7 +183,8 @@ def summarize(transcript: Transcript, session: Session) -> Summary:
         topics=[Topic(text=text) for text in summary_data["topics"]],
     )
     session.add(summary)
-    session.commit()
+    if commit:
+        session.commit()
 
     return summary
 

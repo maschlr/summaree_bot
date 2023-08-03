@@ -1,10 +1,9 @@
-import asyncio
 import uuid
 from pathlib import Path
 
 from sqlalchemy import select
 
-from summaree_bot.integrations.openai import summarize, transcribe_file
+from summaree_bot.integrations.openai import _transcribe_file, summarize
 from summaree_bot.models import Summary, Transcript
 
 from .common import Common
@@ -16,12 +15,12 @@ class MockVoice:
         self.file_unique_id = uuid.uuid4().hex[:8]
         self.mime_type = "audio/ogg"
         self.file_size = 123456
+        self.duration = 42
 
 
-# TODO. test failing due to asyncio call; refactor: https://docs.python.org/3.8/library/unittest.html#unittest.IsolatedAsyncioTestCase
 class TestOpenAI(Common):
     @classmethod
-    async def setUpClass(cls):
+    def setUpClass(cls):
         result = super().setUpClass()
 
         # create transcripts
@@ -31,10 +30,8 @@ class TestOpenAI(Common):
         voices = [MockVoice() for _ in cls.mp3_file_paths]
 
         with cls.Session.begin() as session:
-            await asyncio.wait(
-                transcribe_file(file_path, voice, session)
-                for file_path, voice in zip(cls.mp3_file_paths, voices, strict=True)
-            )
+            for file_path, voice in zip(cls.mp3_file_paths, voices, strict=True):
+                _transcribe_file(file_path, voice, session, commit=False)
 
         return result
 
@@ -42,8 +39,10 @@ class TestOpenAI(Common):
         with self.Session.begin() as session:
             transcripts = session.scalars(select(Transcript)).all()
             self.assertEqual(len(transcripts), len(self.mp3_file_paths))
-
-            summaries = [summarize(transcript, session) for transcript in transcripts]
+            for transcript in transcripts:
+                summary = summarize(transcript, session, commit=False)
+                self.assertIsNotNone(summary)
+            session.commit()
 
         with self.Session.begin() as session:
             summaries = session.scalars(select(Summary)).all()
@@ -52,7 +51,7 @@ class TestOpenAI(Common):
     def test_01_yield_summaries_from_already_summarized_transcripts(self):
         # count the number of summaries in the db
         with self.Session.begin() as session:
-            summaries = self.Session.scalars(select(Summary)).all()
+            summaries = session.scalars(select(Summary)).all()
             num_summaries = len(summaries)
             self.assertEqual(num_summaries, len(self.mp3_file_paths))
 
@@ -61,6 +60,7 @@ class TestOpenAI(Common):
                 summary = summarize(transcript, session)
                 self.assertTrue(summary in summaries)
 
-            # assert that the number of summaries in the db is the same
-            summaries = self.Session.scalars(select(Summary)).all()
+        # assert that the number of summaries in the db is the same
+        with self.Session.begin() as session:
+            summaries = session.scalars(select(Summary)).all()
             self.assertEqual(len(summaries), num_summaries)
