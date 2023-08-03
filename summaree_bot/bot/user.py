@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from ..integrations import TokenEmail, is_valid_email
 from ..logging import getLogger
-from ..models import Language, TelegramChat, TelegramUser, Token, User
+from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
 from ..models.session import DbSessionContext
 from ..utils import url
 from .helpers import add_session, ensure_chat
@@ -158,7 +158,7 @@ async def register(update: Update, context: DbSessionContext) -> None:
                 reply_markup=reply_markup,
             )
             return
-        elif not tg_user.user.token.active:
+        elif not tg_user.user.email_token.active:
             # email address equal to the one already registered
             resend_callback_data = {
                 "fnc": "resend_email",
@@ -174,11 +174,11 @@ async def register(update: Update, context: DbSessionContext) -> None:
                 reply_markup=reply_markup,
             )
             return
-        elif tg_user.user.token.active and not new_email:
+        elif tg_user.user.email_token.active and not new_email:
             await update.message.reply_markdown_v2(r"Your email is already activated\. Everything is fine\. 😊")
             return
 
-    user = User(telegram_user=tg_user, email=email_address, token=Token())
+    user = User(telegram_user=tg_user, email=email_address, token=EmailToken())
     session.add(user)
     session.commit()
 
@@ -196,7 +196,7 @@ async def send_token_email(update: Update, context: DbSessionContext) -> None:
         raise ValueError(f"Telegram user with id {update.effective_user.id} not found.")
     data = {
         "subject": "Activate your summar.ee bot account now",
-        "token": tg_user.user.token.value,
+        "token": tg_user.user.email_token.value,
         "bot_name": context.bot.name[1:],  # remove leading @
         "name": tg_user.first_name,
     }
@@ -230,7 +230,7 @@ async def edit_email(update: Update, context: DbSessionContext, email: str) -> N
         raise ValueError(f"Telegram user with id {update.effective_user.id} not found.")
 
     tg_user.user.email = email
-    token = Token(user=tg_user.user)
+    token = EmailToken(user=tg_user.user)
     session.add(token)
     session.commit()
     await send_token_email(update, context)
@@ -281,7 +281,7 @@ async def activate(update: Update, context: DbSessionContext) -> None:
         await update.message.reply_markdown_v2(msg)
         return
 
-    stmt = select(Token).where(Token.value == context.args[0])
+    stmt = select(EmailToken).where(EmailToken.value == context.args[0])
     token = session.execute(stmt).scalar_one_or_none()
     # case 2: token not found -> show help message
     # case 3: token does not belong to user

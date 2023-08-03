@@ -39,11 +39,18 @@ class User(Base):
     telegram_user_id: Mapped[int] = mapped_column(ForeignKey("telegram_user.id"))
     telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
     email: Mapped[str]
-    token: Mapped["Token"] = relationship(back_populates="user")
+    email_token: Mapped["EmailToken"] = relationship(back_populates="user")
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="user")
 
+    referral_token: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4), unique=True)
 
-class Token(Base):
+    # https://docs.sqlalchemy.org/en/20/orm/self_referential.html#self-referential
+    referrer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"))
+    referrals: Mapped[List["User"]] = relationship("User", back_populates="referrer")
+    referrer: Mapped["User"] = relationship("User", back_populates="referrals", remote_side=[id])
+
+
+class EmailToken(Base):
     __tablename__ = "token"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -52,7 +59,7 @@ class Token(Base):
     expires_at: Mapped[Optional[datetime]]
 
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
-    user: Mapped["User"] = relationship(back_populates="token")
+    user: Mapped["User"] = relationship(back_populates="email_token")
 
 
 class Language(Base):
@@ -179,6 +186,13 @@ class SubscriptionStatus(enum.Enum):
     extended = 4
 
 
+class SubscriptionType(enum.Enum):
+    onboarding = 0
+    referral = 1
+    reffered = 2
+    paid = 3
+
+
 class Subscription(Base):
     __tablename__ = "subscription"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -186,8 +200,13 @@ class Subscription(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     user: Mapped["User"] = relationship(back_populates="subscriptions")
 
+    active: Mapped[bool] = mapped_column(default=True)
+
     start_date: Mapped[Optional[datetime]]
     end_date: Mapped[Optional[datetime]]
     status: Mapped[SubscriptionStatus] = mapped_column(
         sqlalchemy.Enum(SubscriptionStatus), default=SubscriptionStatus.pending
     )
+    type: Mapped[SubscriptionType] = mapped_column(sqlalchemy.Enum(SubscriptionType))
+
+    # TOOD: implement worker that periodically checks for expired subscriptions
