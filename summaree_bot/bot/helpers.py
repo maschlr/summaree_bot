@@ -1,6 +1,6 @@
 from functools import wraps
 
-from ..models import Language, TelegramChat, TelegramUser
+from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
 from ..models.session import add_session
 
 __all__ = ["add_session", "ensure_chat"]
@@ -15,7 +15,7 @@ def ensure_chat(fnc):
         context = kwargs.get("context", args[1])
         session = context.db_session
 
-        if not (user := session.get(TelegramUser, update.effective_user.id)):
+        if not (tg_user := session.get(TelegramUser, update.effective_user.id)):
             attrs = [
                 "id",
                 "first_name",
@@ -25,10 +25,11 @@ def ensure_chat(fnc):
                 "is_premium",
                 "is_bot",
             ]
-            user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in attrs}
+            tg_user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in attrs}
+            tg_user_kwargs["user"] = User(email_token=EmailToken())
 
-            user = TelegramUser(**user_kwargs)
-            session.add(user)
+            tg_user = TelegramUser(**tg_user_kwargs)
+            session.add(tg_user)
 
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
             # standard is english language
@@ -40,12 +41,12 @@ def ensure_chat(fnc):
                 id=update.effective_chat.id,
                 type=update.effective_chat.type,
                 language=en_lang,
-                users={user},
+                users={tg_user},
             )
             session.add(chat)
             # TODO: emit welcome message
-        elif user not in chat.users:
-            chat.users.append(user)
+        elif tg_user not in chat.users:
+            chat.users.append(tg_user)
 
         return fnc(*args, **kwargs)
 

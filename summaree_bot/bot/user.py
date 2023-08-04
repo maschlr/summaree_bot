@@ -109,7 +109,7 @@ async def start(update: Update, context: DbSessionContext) -> None:
             await update.message.reply_markdown_v2(
                 rf"😵‍💫 Receiced invalid argument\(s\) \(`{context.args}`\)",
             )
-            return
+            raise
     user = update.effective_user
     await update.message.reply_html(
         rf"Hi {user.mention_html()}! " + MSG,
@@ -143,7 +143,7 @@ async def register(update: Update, context: DbSessionContext) -> None:
     if tg_user is None:
         return
     elif tg_user.user is not None:
-        new_email = tg_user.user.email != email_address
+        new_email = tg_user.user.email is not None and tg_user.user.email != email_address
         msg = f"""⚠️ You've already registered with the email address `{tg_user.user.email}`\. """
         if new_email:
             edit_callback_data = {"fnc": "edit_email", "args": [email_address]}
@@ -158,7 +158,7 @@ async def register(update: Update, context: DbSessionContext) -> None:
                 reply_markup=reply_markup,
             )
             return
-        elif not tg_user.user.email_token.active:
+        elif tg_user.user.email and not tg_user.user.email_token.active:
             # email address equal to the one already registered
             resend_callback_data = {
                 "fnc": "resend_email",
@@ -174,15 +174,19 @@ async def register(update: Update, context: DbSessionContext) -> None:
                 reply_markup=reply_markup,
             )
             return
-        elif tg_user.user.email_token.active and not new_email:
+        elif tg_user.user.email and tg_user.user.email_token.active and not new_email:
             await update.message.reply_markdown_v2(r"Your email is already activated\. Everything is fine\. 😊")
             return
 
-    user = User(telegram_user=tg_user, email=email_address, token=EmailToken())
-    session.add(user)
-    session.commit()
+    if not tg_user.user:
+        user = User(telegram_user=tg_user, email=email_address, email_token=EmailToken())
+        session.add(user)
+    else:
+        tg_user.user.email = email_address
+        tg_user.user.email_token = EmailToken()
+    session.flush()
 
-    await send_token_email(update, context, session=session)
+    await send_token_email(update, context)
 
 
 @add_session
@@ -232,7 +236,8 @@ async def edit_email(update: Update, context: DbSessionContext, email: str) -> N
     tg_user.user.email = email
     token = EmailToken(user=tg_user.user)
     session.add(token)
-    session.commit()
+    session.flush()
+
     await send_token_email(update, context)
     return
 

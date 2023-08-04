@@ -9,15 +9,14 @@ from .helpers import add_session, ensure_chat
 @add_session
 @ensure_chat
 async def referral(update: Update, context: DbSessionContext) -> None:
-    if update is None or update.message is None:
-        raise ValueError("update is None")
+    if update is None or update.message is None or update.effective_user is None:
+        raise ValueError("update/message/user is None")
     # case 1: telegram_user has no user -> /register first
     session = context.db_session
     tg_user = session.get(TelegramUser, update.effective_user.id)
     if tg_user is None or tg_user.user is None:
-        await update.message.reply_markdown_v2(
-            "✋💸 In order to use referrals, you need to `/register` your email first\."
-        )
+        msg = "✋💸 In order to use referrals, please `/register` your email first\. 📧"
+        await update.message.reply_markdown_v2(msg)
         return
     elif not tg_user.user.email_token.active:
         await update.message.reply_markdown_v2(
@@ -47,9 +46,7 @@ async def referral(update: Update, context: DbSessionContext) -> None:
 
 
 def premium(update: Update, context: DbSessionContext) -> None:
-    # TODO
-    # case 1: telegram_user has no user -> /register first
-    # case 2: user has active subscription
+    # case 1: user has active subscription
     #   -> show subscription info
     #   -> ask user if subscription should be extended
     # case 3: user has no active subscription
