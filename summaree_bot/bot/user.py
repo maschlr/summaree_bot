@@ -1,17 +1,16 @@
 import binascii
 import json
-from typing import Any, Callable, cast
+from typing import cast
 
 from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
 
 from ..integrations import TokenEmail, is_valid_email
 from ..logging import getLogger
 from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
 from ..models.session import DbSessionContext
 from ..utils import url
-from .helpers import add_session, ensure_chat
+from .db import add_session, ensure_chat
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -22,7 +21,6 @@ __all__ = [
     "register",
     "send_token_email",
     "edit_email",
-    "dispatch_callback",
     "activate",
     "catch_all",
 ]
@@ -242,26 +240,6 @@ async def edit_email(update: Update, context: DbSessionContext, email: str) -> N
     return
 
 
-async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Parses the CallbackQuery and updates the message text."""
-    query = update.callback_query
-    if query is None or query.data is None:
-        raise ValueError("The update must contain a callback query and data.")
-
-    # CallbackQueries need to be answered, even if no notification to the user is needed
-    # Some clients may have trouble otherwise. See https://core.telegram.org/bots/api#callbackquery
-    await query.answer()
-
-    callback_data = cast(dict[str, Any], query.data)
-    fnc_key = callback_data["fnc"]
-
-    callback_fnc_mapping = {"resend_email": send_token_email, "edit_email": edit_email}
-    fnc: Callable = callback_fnc_mapping[fnc_key]
-    args: list = callback_data.get("args", [])
-    kwargs: dict = callback_data.get("kwargs", {})
-    await fnc(update, context, *args, **kwargs)
-
-
 @add_session
 @ensure_chat
 async def activate(update: Update, context: DbSessionContext) -> None:
@@ -297,7 +275,6 @@ async def activate(update: Update, context: DbSessionContext) -> None:
     # case 3: email registered but not activated -> activate
     else:
         token.active = True
-        session.add(token)
         # TODO: add 10 day free premium trial
         await update.message.reply_markdown_v2(r"""✅ Your account has been activated\! 🚀""")
         return

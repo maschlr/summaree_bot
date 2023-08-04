@@ -49,6 +49,8 @@ class User(Base):
     referrals: Mapped[List["User"]] = relationship("User", back_populates="referrer")
     referrer: Mapped["User"] = relationship("User", back_populates="referrals", remote_side=[id])
 
+    is_premium: Mapped[bool] = mapped_column(default=False)
+
 
 class EmailToken(Base):
     __tablename__ = "token"
@@ -101,12 +103,17 @@ class TelegramChat(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str]
 
+    title: Mapped[Optional[str]]
+    username: Mapped[Optional[str]]
+
     # language = None means translate to language of transcript
+    # TODO: make translation premium feature
     language_id: Mapped[Optional[int]] = mapped_column(ForeignKey("language.id"))
     language: Mapped["Language"] = relationship(back_populates="chats")
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
 
     users: Mapped[set["TelegramUser"]] = relationship(secondary=chats_to_users_rel, back_populates="chats")
+    subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
 
 
 class BotMessage(Base):
@@ -187,7 +194,7 @@ class SubscriptionStatus(enum.Enum):
 
 
 class SubscriptionType(enum.Enum):
-    onboarding = 0
+    onboarding = 0  # trial
     referral = 1
     reffered = 2
     paid = 3
@@ -200,6 +207,9 @@ class Subscription(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     user: Mapped["User"] = relationship(back_populates="subscriptions")
 
+    chat_id: Mapped[int] = mapped_column(ForeignKey("telegram_chat.id"))
+    chat: Mapped["TelegramChat"] = relationship(back_populates="subscriptions")
+
     active: Mapped[bool] = mapped_column(default=True)
 
     start_date: Mapped[Optional[datetime]]
@@ -208,5 +218,7 @@ class Subscription(Base):
         sqlalchemy.Enum(SubscriptionStatus), default=SubscriptionStatus.pending
     )
     type: Mapped[SubscriptionType] = mapped_column(sqlalchemy.Enum(SubscriptionType))
+    # TODO: implement worker that periodically checks for expired subscriptions
 
-    # TOOD: implement worker that periodically checks for expired subscriptions
+
+# TODO implement Invoice Model

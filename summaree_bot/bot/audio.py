@@ -4,7 +4,7 @@ from ..integrations import summarize, transcribe_audio, transcribe_voice, transl
 from ..logging import getLogger
 from ..models import Language, TelegramChat
 from ..models.session import DbSessionContext
-from .helpers import add_session, ensure_chat
+from .db import add_session, ensure_chat
 
 # Enable logging
 _logger = getLogger(__name__)

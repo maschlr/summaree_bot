@@ -8,6 +8,7 @@ from telegram.ext import (
     CommandHandler,
     InvalidCallbackData,
     MessageHandler,
+    PreCheckoutQueryHandler,
     filters,
 )
 
@@ -17,14 +18,13 @@ from summaree_bot.bot.error import (
     error_handler,
     invalid_button_handler,
 )
-from summaree_bot.bot.user import (
-    activate,
-    catch_all,
-    dispatch_callback,
-    register,
-    set_lang,
-    start,
+from summaree_bot.bot.misc import dispatch_callback
+from summaree_bot.bot.premium import (  # referral_handler,
+    precheckout_callback,
+    premium_handler,
+    successful_payment_callback,
 )
+from summaree_bot.bot.user import activate, catch_all, register, set_lang, start
 from summaree_bot.integrations import check_database_languages
 from summaree_bot.logging import getLogger
 
@@ -63,6 +63,16 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))
     application.add_handler(CommandHandler("bad_command", bad_command_handler))
+
+    # Add command handler to start the payment invoice
+    application.add_handler(CommandHandler("premium", premium_handler))
+
+    # Pre-checkout handler to final check
+    application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+
+    # Success! Notify your user!
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
+
     # ...and the error handler
     application.add_error_handler(error_handler)
 

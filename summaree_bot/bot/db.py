@@ -48,6 +48,11 @@ def ensure_chat(fnc):
         elif tg_user not in chat.users:
             chat.users.append(tg_user)
 
+        # update chat data
+        # TODO: do we want this or is it better to fetch the chat data on demand? db load vs. api calls
+        chat.title = update.effective_chat.title
+        chat.username = update.effective_chat.username
+
         return fnc(*args, **kwargs)
 
     return wrapper
