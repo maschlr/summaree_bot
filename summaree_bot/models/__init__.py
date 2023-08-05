@@ -2,7 +2,11 @@ from .models import (
     Base,
     BotMessage,
     EmailToken,
+    Invoice,
+    InvoiceStatus,
     Language,
+    PremiumPeriod,
+    Product,
     Subscription,
     SubscriptionStatus,
     SubscriptionType,
@@ -30,6 +34,10 @@ __all__ = [
     "Subscription",
     "SubscriptionStatus",
     "SubscriptionType",
+    "Product",
+    "PremiumPeriod",
+    "Invoice",
+    "InvoiceStatus",
 ]
 
 __release__ = "0.1.0"

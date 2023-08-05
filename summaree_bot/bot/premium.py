@@ -1,6 +1,5 @@
 import json
 import os
-import secrets
 from datetime import datetime, timedelta
 from typing import Mapping, Optional, Sequence, Union, cast
 
@@ -8,8 +7,11 @@ from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
 from telegram.ext import ContextTypes
 
-from ..logging import getLogger
 from ..models import (
+    Invoice,
+    InvoiceStatus,
+    PremiumPeriod,
+    Product,
     Subscription,
     SubscriptionStatus,
     SubscriptionType,
@@ -21,8 +23,6 @@ from ..models.session import DbSessionContext
 from ..utils import url
 from .db import add_session, ensure_chat
 
-_logger = getLogger(__name__)
-
 __all__ = [
     "premium_handler",
     "precheckout_callback",
@@ -32,8 +32,8 @@ __all__ = [
 ]
 
 
-STRIPE_TOKEN = os.getenv("STRIPE_TOKEN", "")
-PAYMENT_PAYLOAD_TOKEN = secrets.token_urlsafe(8)
+STRIPE_TOKEN = os.getenv("STRIPE_TOKEN", "Configure me in .env")
+PAYMENT_PAYLOAD_TOKEN = os.getenv("PAYMENT_PAYLOAD_TOKEN", "Configure me in .env")
 
 
 @add_session
@@ -75,23 +75,40 @@ async def referral_handler(update: Update, context: DbSessionContext) -> None:
             )
 
 
-def generate_subscription_keyboard(subscription_id: Optional[int] = None) -> InlineKeyboardMarkup:
+def generate_subscription_keyboard(
+    context: DbSessionContext, subscription_id: Optional[int] = None
+) -> InlineKeyboardMarkup:
     callback_data: dict[str, Union[str, Sequence, Mapping]] = {"fnc": "buy_or_extend_subscription"}
     if subscription_id is not None:
         callback_data["args"] = [subscription_id]
-    keyboard = [
+
+    # fetch all € products
+    stmt = select(Product).where(Product.premium_period.in_(list(PremiumPeriod))).where(Product.currency == "EUR")
+    products = context.db_session.execute(stmt).scalars().all()
+    if len(products) < len(PremiumPeriod):
+        raise ValueError(
+            f"Found less product than PremiumPeriods\nproducts: {products}\nPremiumPeriods: {PremiumPeriod}"
+        )
+    periods_to_products = {product.premium_period: product for product in products}
+
+    # create keyboard
+    period_to_keyboard_button_text = {
+        PremiumPeriod.MONTH: f"👶 1 month: {periods_to_products[PremiumPeriod.MONTH].price/100:.2f}€",
+        PremiumPeriod.THREE_MONTHS: f"🆙 3 months: {periods_to_products[PremiumPeriod.THREE_MONTHS].price/100:.2f}€",
+        PremiumPeriod.YEAR: f"💯 1 year: {periods_to_products[PremiumPeriod.THREE_MONTHS].price/100:.2f}€",
+    }
+    keyboard_buttons = [
         [
-            InlineKeyboardButton("👶 1 month: 1,99€", callback_data=dict(**callback_data, kwargs={"days": 31})),
-        ],
-        [
-            InlineKeyboardButton("🆙 3 months: 4,20€", callback_data=dict(**callback_data, kwargs={"days": 92})),
-        ],
-        [
-            InlineKeyboardButton("💯 1 year: 9,99€", callback_data=dict(**callback_data, kwargs={"days": 366})),
-        ],
-        [InlineKeyboardButton("🙅‍♀️🙅‍♂️ No, thanks", callback_data={"fnc": "remove_inline_keyboard"})],
+            InlineKeyboardButton(
+                text, callback_data=dict(**callback_data, kwargs={"product_id": periods_to_products[period].id})
+            )
+        ]
+        for period, text in period_to_keyboard_button_text.items()
     ]
-    return InlineKeyboardMarkup(keyboard)
+    keyboard_buttons.append(
+        [InlineKeyboardButton("🙅‍♀️🙅‍♂️ No, thanks", callback_data={"fnc": "remove_inline_keyboard"})]
+    )
+    return InlineKeyboardMarkup(keyboard_buttons)
 
 
 @add_session
@@ -124,90 +141,128 @@ async def premium_handler(update: Update, context: DbSessionContext) -> None:
             )
 
         subscription_msg += "\nWould you like to extend your subscription?"
-        reply_markup = generate_subscription_keyboard(subscriptions[0].id)
+        reply_markup = generate_subscription_keyboard(context, subscriptions[0].id)
         await update.effective_message.reply_markdown_v2(subscription_msg, reply_markup=reply_markup)
     # case 3: chat has no active subscription
     #  -> ask user if subscription should be bought
     else:
-        reply_markup = generate_subscription_keyboard()
+        reply_markup = generate_subscription_keyboard(context)
         await update.effective_message.reply_markdown_v2(
             "⌛ You have no active subscription\. Would you like to buy one?", reply_markup=reply_markup
         )
 
 
 @add_session
-async def payment_callback(update: Update, context: DbSessionContext, days: int) -> None:
-    if update.message is None:
-        raise ValueError("update/message is None")
+async def payment_callback(update: Update, context: DbSessionContext, product_id: int) -> None:
+    if update.effective_chat is None or update.effective_user is None:
+        raise ValueError("chat/user is None")
     """Sends an invoice without shipping-payment."""
-    days_to_price_eur = {31: 199, 92: 420, 366: 999}
-    if days not in days_to_price_eur:
-        raise ValueError(f"days ({days}) not in days_to_price_eur")
+    session = context.db_session
+    product = session.get(Product, product_id)
+    if product is None:
+        raise ValueError(f"product {product_id} not found in database")
 
-    chat_id = update.message.chat_id
     title = "summar.ee bot Subscription"
     description = "Premium Features: Unlimited summaries, unlimited translations"
     # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
     currency = "EUR"
     # price in dollars
-    price = days_to_price_eur[days]
+    price = product.price
+    days = product.premium_period.value
     # price * 100 so as to include 2 decimal points
-    prices = [LabeledPrice(f"Premium Subscription {days} days", price * 100)]
+    prices = [LabeledPrice(f"Premium Subscription {days} days", price)]
+
+    chat_id = update.effective_chat.id
+    tg_user = session.get(TelegramUser, update.effective_user.id)
+    if tg_user is None or tg_user.user is None:
+        raise ValueError(f"tg_user {update.effective_user.id} not found in database")
+    invoice = Invoice(user_id=tg_user.user.id, chat_id=chat_id, product_id=product.id)
+    session.add(invoice)
+
+    payload = url.encode([PAYMENT_PAYLOAD_TOKEN, invoice.id])
+    session.commit()
 
     # optionally pass need_name=True, need_phone_number=True,
     # need_email=True, need_shipping_address=True, is_flexible=True
-    payload = url.encode([PAYMENT_PAYLOAD_TOKEN, days])
-    await context.bot.send_invoice(chat_id, title, description, str(payload, "ascii"), STRIPE_TOKEN, currency, prices)
+    await context.bot.send_invoice(
+        chat_id,
+        title,
+        description,
+        str(payload, "ascii"),
+        STRIPE_TOKEN,
+        currency,
+        prices,
+        need_email=True,
+        protect_content=True,
+    )
 
 
-def check_payment_payload(query) -> int:
-    payload = cast(Sequence, url.decode(query.invoice_payload))
-    payload_token, days = payload
+def check_payment_payload(context: DbSessionContext, invoice_payload: str) -> int:
+    payload = cast(Sequence, url.decode(invoice_payload))
+    payload_token, invoice_id = payload
     if payload_token != PAYMENT_PAYLOAD_TOKEN:
+        session = context.db_session
+        invoice = session.get(Invoice, invoice_id)
+        if invoice is not None:
+            invoice.status = InvoiceStatus.canceled
         raise ValueError(f"payload_token ({payload_token}) != PAYMENT_PAYLOAD_TOKEN ({PAYMENT_PAYLOAD_TOKEN})")
-    return days
+    return invoice_id
 
 
-async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+@add_session
+async def precheckout_callback(update: Update, context: DbSessionContext) -> None:
     """Answers the PreQecheckoutQuery"""
     query = update.pre_checkout_query
     if query is None:
         raise ValueError("update.pre_checkout_query is None")
     # check the payload, is this from your bot?
     try:
-        check_payment_payload(query)
+        check_payment_payload(context, query.invoice_payload)
     except (json.JSONDecodeError, ValueError):
-        await query.answer(ok=False, error_message="😕 Something went wrong...Support has been contacted.")
+        await query.answer(
+            ok=False, error_message="😕 Something went wrong... Invoice has been cancelled. Support has been contacted."
+        )
         raise
 
     await query.answer(ok=True)
 
 
 # finally, after contacting the payment provider...
+@add_session
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context = cast(DbSessionContext, context)
     """Confirms the successful payment."""
-    query = update.callback_query
     if (
-        query is None
-        or update.effective_user is None
-        or update.effective_chat is None
-        or update.effective_message is None
+        update.message is None
+        or (payment := update.message.successful_payment) is None
+        or (_tg_user := update.effective_user) is None
     ):
-        raise ValueError("update doesn't contain necessary information. See traceback for more details")
+        raise ValueError("update.message.successful_payment is None")
+
     session = context.db_session
-    days = check_payment_payload(query)
+    invoice_id = check_payment_payload(context, payment.invoice_payload)
     # create subscription
-    tg_user = session.get(TelegramUser, update.effective_user.id)
-    if not tg_user:
-        raise ValueError("tg_user is None")
-    chat = session.get(TelegramChat, update.effective_chat.id)
-    user = tg_user.user
+    invoice = session.get(Invoice, invoice_id)
+    if not invoice:
+        raise ValueError("Invoice not found")
+
+    if (_tg_user := update.effective_user) is None:
+        raise ValueError("telegram user is None")
+    # check if invoice user has changed (e.g. forwarded invoice)
+    tg_user = session.get(TelegramUser, _tg_user.id)
+    if tg_user is None or tg_user.user is None:
+        raise ValueError("(telegram) user not found in database")
+
+    if invoice.user != tg_user.user:
+        invoice.user = tg_user.user
+    invoice.status = InvoiceStatus.paid
+
+    # create subscription
     start_date = datetime.utcnow()
-    end_date = start_date + timedelta(days=days)
+    end_date = start_date + timedelta(days=invoice.product.premium_period.value)
     subscription = Subscription(
-        user=user,
-        chat=chat,
+        user=invoice.user,
+        chat=invoice.chat,
         start_date=start_date,
         end_date=end_date,
         status=SubscriptionStatus.active,
@@ -215,4 +270,4 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
     )
     session.add(subscription)
 
-    await update.effective_message.reply_text(f"Thank you for your payment! Subscription is active until {end_date}")
+    await update.message.reply_text(f"Thank you for your payment! Subscription is active until {end_date}")

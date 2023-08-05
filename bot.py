@@ -59,20 +59,22 @@ def main() -> None:
         commands_to_set.append(bot_command)
 
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
-    application.add_handler(MessageHandler(filters.ALL & ~filters.VOICE & ~filters.AUDIO & ~filters.COMMAND, catch_all))
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))
     application.add_handler(CommandHandler("bad_command", bad_command_handler))
 
     # Add command handler to start the payment invoice
     application.add_handler(CommandHandler("premium", premium_handler))
-
     # Pre-checkout handler to final check
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-
     # Success! Notify your user!
     application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
+    application.add_handler(
+        MessageHandler(
+            filters.ALL & ~filters.VOICE & ~filters.AUDIO & ~filters.COMMAND & ~filters.SUCCESSFUL_PAYMENT, catch_all
+        )
+    )
     # ...and the error handler
     application.add_error_handler(error_handler)
 

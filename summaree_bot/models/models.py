@@ -49,7 +49,7 @@ class User(Base):
     referrals: Mapped[List["User"]] = relationship("User", back_populates="referrer")
     referrer: Mapped["User"] = relationship("User", back_populates="referrals", remote_side=[id])
 
-    is_premium: Mapped[bool] = mapped_column(default=False)
+    invoices: Mapped["Invoice"] = relationship("Invoice", back_populates="user")
 
 
 class EmailToken(Base):
@@ -114,6 +114,7 @@ class TelegramChat(Base):
 
     users: Mapped[set["TelegramUser"]] = relationship(secondary=chats_to_users_rel, back_populates="chats")
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
+    invoices: Mapped["Invoice"] = relationship("Invoice", back_populates="chat")
 
 
 class BotMessage(Base):
@@ -218,7 +219,65 @@ class Subscription(Base):
         sqlalchemy.Enum(SubscriptionStatus), default=SubscriptionStatus.pending
     )
     type: Mapped[SubscriptionType] = mapped_column(sqlalchemy.Enum(SubscriptionType))
+
+    invoices: Mapped[List["Invoice"]] = relationship(back_populates="subscription")
     # TODO: implement worker that periodically checks for expired subscriptions
+    # TODO: implement check for subscription status on every summarization request
 
 
-# TODO implement Invoice Model
+class PaymentProvider(enum.Enum):
+    STRIPE = 0
+
+
+class InvoiceStatus(enum.Enum):
+    draft = 0
+    paid = 1
+    canceled = 2
+
+
+class Invoice(Base):
+    __tablename__ = "invoice"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[InvoiceStatus] = mapped_column(sqlalchemy.Enum(InvoiceStatus), default=InvoiceStatus.draft)
+    title: Mapped[str] = mapped_column(default="summar.ee bot Subscription")
+    description: Mapped[str] = mapped_column(default="Premium Features: Unlimited summaries, unlimited translations")
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user: Mapped["User"] = relationship(back_populates="invoices")
+    # TODO map with user email, send token and activate
+    email: Mapped[Optional[str]]
+
+    chat_id: Mapped[int] = mapped_column(ForeignKey("telegram_chat.id"))
+    chat: Mapped["TelegramChat"] = relationship(back_populates="invoices")
+
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id"))
+    product: Mapped["Product"] = relationship(back_populates="invoices")
+
+    subscription_id: Mapped[Optional[int]] = mapped_column(ForeignKey("subscription.id"))
+    subscription: Mapped["Subscription"] = relationship(back_populates="invoices")
+
+    payment_provider: Mapped[PaymentProvider] = mapped_column(
+        sqlalchemy.Enum(PaymentProvider), default=PaymentProvider.STRIPE
+    )
+    provider_payment_charge_id: Mapped[Optional[str]]
+    telegram_payment_charge_id: Mapped[Optional[str]]
+    currency: Mapped[Optional[str]]
+    total_amount: Mapped[Optional[int]]
+
+
+class PremiumPeriod(enum.Enum):
+    MONTH = 31
+    THREE_MONTHS = 92
+    YEAR = 366
+
+
+class Product(Base):
+    __tablename__ = "product"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    premium_period: Mapped[PremiumPeriod] = mapped_column(sqlalchemy.Enum(PremiumPeriod))
+    description: Mapped[str]
+    price: Mapped[int]
+    currency: Mapped[str]
+    active: Mapped[bool] = mapped_column(default=True)
+    invoices: Mapped[List["Invoice"]] = relationship(back_populates="product")
