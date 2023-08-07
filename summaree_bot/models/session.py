@@ -1,6 +1,7 @@
 import os
 from functools import wraps
 
+import telegram
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SqlAlchemySession
 from sqlalchemy.orm import sessionmaker
@@ -14,17 +15,18 @@ else:
 Session = sessionmaker(bind=engine)
 
 
-# use this decorator for functions in bot.py
-def add_session(fnc):
+# use this decorator for functions that need a database session
+def session_context(fnc):
     @wraps(fnc)
-    def wrapper(*args, **kwargs):
-        context = kwargs.get("context", args[1])
+    def wrapper(update: telegram.Update, context: DbSessionContext, *args, **kwargs):
+        # if multiple functions are called in a row, we don't want to create a new session
         if hasattr(context, "db_session"):
-            return fnc(*args, **kwargs)
+            return fnc(update, context, *args, **kwargs)
 
+        # a single function call should create a new session, commit and close it
         with Session.begin() as session:
             context.db_session = session
-            result = fnc(*args, **kwargs)
+            result = fnc(update, context, *args, **kwargs)
         return result
 
     return wrapper

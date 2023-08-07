@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from summaree_bot.integrations.deepl import available_target_languages
-from summaree_bot.models import Base, Language
+from summaree_bot.models import Base, Language, session
 
 
 class Common(unittest.TestCase):
@@ -13,6 +13,8 @@ class Common(unittest.TestCase):
         engine = create_engine("sqlite:///:memory:", echo=True)
         Base.metadata.create_all(engine)
         cls.Session = sessionmaker(bind=engine)
+        # monkey patch to avoid writing to real database
+        session.Session = cls.Session
         cls.addClassCleanup(cls.Session.close_all)
         cls.addClassCleanup(Base.metadata.drop_all, engine)
         cls._populateLanguages()

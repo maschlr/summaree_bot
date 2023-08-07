@@ -3,22 +3,29 @@ import json
 import logging
 import re
 import subprocess
-import tempfile
-from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Union
+from typing import Optional, Union, cast
 
-import magic
 import openai
 import telegram
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from ..models import Language, Summary, Topic, Transcript
+from ..bot import BotMessage, ensure_chat
+from ..models import Language, Summary, TelegramChat, Topic, Transcript
+from ..models.session import DbSessionContext, session_context
+from .deepl import _translate
 
 _logger = logging.getLogger(__name__)
 
 mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
+
+__all__ = [
+    "_check_existing_transcript",
+    "_extract_file_name",
+    "_transcribe_file",
+    "_summarize",
+    "_get_summary_message",
+]
 
 
 def transcode_to_mp3(file_path: Path) -> Path:
@@ -32,87 +39,51 @@ def transcode_to_mp3(file_path: Path) -> Path:
     return mp3_filepath
 
 
-def check_file_unique_id(
-    fnc,
-) -> Callable[[telegram.Update, Session], Coroutine[Any, Any, Transcript]]:
-    @wraps(fnc)
-    async def wrapper(update: telegram.Update, session: Session) -> Transcript:
-        if update.message is None:
-            raise ValueError("The update must contain a message.")
+@session_context
+@ensure_chat
+def _check_existing_transcript(
+    update: telegram.Update, context: DbSessionContext
+) -> tuple[Optional[Transcript], Union[telegram.Voice, telegram.Audio]]:
+    if update.message is None or (update.message.voice is None and update.message.audio is None):
+        raise ValueError("The update must contain a voice or audio message.")
 
-        for voice_or_audio in (update.message.voice, update.message.audio):
-            if voice_or_audio is not None:
-                file_unique_id = voice_or_audio.file_unique_id
-                break
+    session = context.db_session
+    if session is None:
+        raise ValueError("There should be a session attached to context")
+    voice_or_audio = cast(Union[telegram.Voice, telegram.Audio], (update.message.voice or update.message.audio))
+    file_unique_id = voice_or_audio.file_unique_id
 
-        stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
-        if transcript := session.scalars(stmt).one_or_none():
-            _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
-            return transcript
-        else:
-            return await fnc(update, session)
-
-    return wrapper
+    stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
+    if transcript := session.scalars(stmt).one_or_none():
+        _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
+    return transcript, voice_or_audio
 
 
-@check_file_unique_id
-async def transcribe_audio(update: telegram.Update, session: Session) -> Transcript:
-    if not update.message or not update.message.audio:
-        raise ValueError("The update must contain an audio message.")
+def _extract_file_name(voice_or_audio: Union[telegram.Voice, telegram.Audio]) -> Path:
+    if hasattr(voice_or_audio, "file_name") and voice_or_audio.file_name is not None:
+        return Path(voice_or_audio.file_name)
 
-    file_name = update.message.audio.file_name or update.message.audio.file_unique_id
-    return await transcribe_file(file_name, update.message.audio, session)
-
-
-@check_file_unique_id
-async def transcribe_voice(update: telegram.Update, session: Session) -> Transcript:
-    if not update.message or not update.message.voice:
-        raise ValueError("The update must contain a voice message.")
-
+    # else try to extract the suffix via the mime type or use file_name without suffic
     match = None
-    if mime_type := update.message.voice.mime_type:
+    if mime_type := voice_or_audio.mime_type:
         match = mimetype_pattern.match(mime_type)
 
     if match is None:
-        file_name = update.message.voice.file_unique_id
+        file_name = voice_or_audio.file_unique_id
     else:
-        file_name = f"{update.message.voice.file_unique_id}.{match.group('subtype')}"
+        file_name = f"{voice_or_audio.file_unique_id}.{match.group('subtype')}"
 
-    return await transcribe_file(file_name, update.message.voice, session)
-
-
-async def transcribe_file(
-    file_name_str: str,
-    voice_or_audio: Union[telegram.Voice, telegram.Audio],
-    session: Session,
-) -> Transcript:
-    if voice_or_audio is None:
-        raise ValueError(
-            "Arg voice_or_audio is None. Can only transcribe when getting passed a voice or audio message."
-        )
-
-    file_name = Path(file_name_str)
-
-    # create a temporary folder
-    with tempfile.TemporaryDirectory() as tempdir_path_str:
-        # download the file to the folder
-        tempdir_path = Path(tempdir_path_str)
-        file_path = tempdir_path / file_name
-        file = await voice_or_audio.get_file()
-        await file.download_to_drive(file_path)
-
-        if not file_name.suffix:
-            mime = magic.from_file(file_path, mime=True)
-            _, suffix = mime.split("/")
-            file_path.rename(file_path.with_suffix(f".{suffix}"))
-
-        transcript = _transcribe_file(file_path, voice_or_audio, session)
-        return transcript
+    return Path(file_name)
 
 
+@session_context
 def _transcribe_file(
-    file_path: Path, voice_or_audio: Union[telegram.Voice, telegram.Audio], session: Session, commit: bool = False
+    update: telegram.Update,
+    context: DbSessionContext,
+    file_path: Path,
+    voice_or_audio: Union[telegram.Voice, telegram.Audio],
 ) -> Transcript:
+    session = context.db_session
     with open(file_path, "rb") as fp:
         m = hashlib.sha256()
         while chunk := fp.read(8192):
@@ -122,6 +93,10 @@ def _transcribe_file(
         if transcript := session.execute(stmt).scalar_one_or_none():
             _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
             return transcript
+
+    if update.message is None or (update.message.voice is None and update.message.audio is None):
+        raise ValueError("The update must contain a voice or audio message.")
+    voice_or_audio = cast(Union[telegram.Voice, telegram.Audio], (update.message.voice or update.message.audio))
 
     # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
     if file_path.suffix[1:] not in {
@@ -140,22 +115,25 @@ def _transcribe_file(
     # send the .mp3 file to openai whisper, create a db entry and return it
     with open(supported_file_path, "rb") as mp3_fp:
         transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
-        transcript = Transcript(
-            file_unique_id=voice_or_audio.file_unique_id,
-            file_id=voice_or_audio.file_id,
-            sha256_hash=sha256_hash,
-            duration=voice_or_audio.duration,
-            mime_type=voice_or_audio.mime_type,
-            file_size=voice_or_audio.file_size,
-            result=transcription_result["text"],
-        )
-        session.add(transcript)
-        if commit:
-            session.commit()
-        return transcript
+
+    transcript = Transcript(
+        file_unique_id=voice_or_audio.file_unique_id,
+        file_id=voice_or_audio.file_id,
+        sha256_hash=sha256_hash,
+        duration=voice_or_audio.duration,
+        mime_type=voice_or_audio.mime_type,
+        file_size=voice_or_audio.file_size,
+        result=transcription_result["text"],
+    )
+    session.add(transcript)
+    return transcript
 
 
-def summarize(transcript: Transcript, session: Session, commit: bool = True) -> Summary:
+@session_context
+def _summarize(update: telegram.Update, context: DbSessionContext, transcript: Transcript) -> Summary:
+    session = context.db_session
+    session.add(transcript)
+
     # if the transcript is already summarized return it
     if transcript.summary is not None:
         return transcript.summary
@@ -171,22 +149,43 @@ def summarize(transcript: Transcript, session: Session, commit: bool = True) -> 
 
     summary_data = get_openai_chatcompletion(messages)
 
+    # TODO: translation logic: premium feature
     language_stmt = select(Language).where(Language.ietf_tag == summary_data["language"])
     if not (language := session.scalars(language_stmt).one_or_none()):
         _logger.warning(f"Could not find language with ietf_tag {summary_data['language']}")
     else:
         transcript.input_language = language
-        session.add(transcript)
 
     summary = Summary(
         transcript=transcript,
         topics=[Topic(text=text) for text in summary_data["topics"]],
     )
     session.add(summary)
-    if commit:
-        session.commit()
-
     return summary
+
+
+@session_context
+def _get_summary_message(update: telegram.Update, context: DbSessionContext, summary: Summary) -> BotMessage:
+    if update.effective_chat is None:
+        raise ValueError("The update must contain a chat.")
+
+    session = context.db_session
+    session.add(summary)
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    if chat is None:
+        raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
+
+    en_lang = Language.get_default_language(session)
+    if chat.language != en_lang:
+        translations = [
+            _translate(session=session, target_language=chat.language, topic=topic) for topic in summary.topics
+        ]
+        session.add_all(translations)
+        msg = "\n".join(f"- {translation.target_text}" for translation in translations)
+    else:
+        msg = "\n".join(f"- {topic.text}" for topic in summary.topics)
+
+    return BotMessage(update.effective_chat.id, msg)
 
 
 def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retries: int = 2) -> dict:

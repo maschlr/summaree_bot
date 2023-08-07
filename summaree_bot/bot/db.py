@@ -1,9 +1,9 @@
 from functools import wraps
 
 from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
-from ..models.session import add_session
+from ..models.session import Session, session_context
 
-__all__ = ["add_session", "ensure_chat"]
+__all__ = ["session_context", "ensure_chat", "Session"]
 
 
 def ensure_chat(fnc):
@@ -11,7 +11,6 @@ def ensure_chat(fnc):
     def wrapper(*args, **kwargs):
         # update is either in kwargs or first arg
         update = kwargs.get("update", args[0])
-
         context = kwargs.get("context", args[1])
         session = context.db_session
 
@@ -49,9 +48,9 @@ def ensure_chat(fnc):
             chat.users.append(tg_user)
 
         # update chat data
-        # TODO: do we want this or is it better to fetch the chat data on demand? db load vs. api calls
         chat.title = update.effective_chat.title
         chat.username = update.effective_chat.username
+        session.flush()
 
         return fnc(*args, **kwargs)
 

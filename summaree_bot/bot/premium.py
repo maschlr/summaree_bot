@@ -5,6 +5,7 @@ from typing import Mapping, Optional, Sequence, Union, cast
 
 from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..models import (
@@ -21,7 +22,8 @@ from ..models import (
 )
 from ..models.session import DbSessionContext
 from ..utils import url
-from .db import add_session, ensure_chat
+from . import BotInvoice, BotMessage
+from .db import ensure_chat, session_context
 
 __all__ = [
     "premium_handler",
@@ -36,43 +38,60 @@ STRIPE_TOKEN = os.getenv("STRIPE_TOKEN", "Configure me in .env")
 PAYMENT_PAYLOAD_TOKEN = os.getenv("PAYMENT_PAYLOAD_TOKEN", "Configure me in .env")
 
 
-@add_session
+@session_context
 @ensure_chat
-async def referral_handler(update: Update, context: DbSessionContext) -> None:
+def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
     if update is None or update.message is None or update.effective_user is None:
         raise ValueError("update/message/user is None")
     # case 1: telegram_user has no user -> /register first
     session = context.db_session
     tg_user = session.get(TelegramUser, update.effective_user.id)
+    chat_id = update.message.chat.id
     if tg_user is None or tg_user.user is None:
         msg = "✋💸 In order to use referrals, please `/register` your email first\. 📧"
-        await update.message.reply_markdown_v2(msg)
-        return
+        return BotMessage(chat_id, msg, parse_mode=ParseMode.MARKDOWN_V2)
     elif not tg_user.user.email_token.active:
-        await update.message.reply_markdown_v2(
-            "✋💸 Your email is not verified\. Please check your inbox and click the link in the email\. "
-            "Use `/register` to re-send email or change email address\."
+        return BotMessage(
+            chat_id,
+            (
+                "✋💸 Your email is not verified\. Please check your inbox and click the link in the email\. "
+                "Use `/register` to re-send email or change email address\."
+            ),
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
     elif not context.args:
         # case 2: no context.args -> list token and referred users
         n_referrals = len(tg_user.user.referrals)
-        await update.message.reply_markdown_v2(
-            f"👥 Your referral token is `{tg_user.user.referral_token}`\.\n\n"
-            f"💫 You have referred {n_referrals} users\. "
-            f"In total, you have received {n_referrals*7} days of free premium\! 💸"
+        return BotMessage(
+            chat_id,
+            (
+                f"👥 Your referral token is `{tg_user.user.referral_token}`\.\n\n"
+                f"💫 You have referred {n_referrals} users\. "
+                f"In total, you have received {n_referrals*7} days of free premium\! 💸"
+            ),
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
     # case 3: context.args[0] is a token -> add referral
     else:
         stmt = select(User).where(User.referral_token == context.args[0])
         referrer = session.execute(stmt).scalar_one_or_none()
         if referrer is None:
-            await update.message.reply_markdown_v2("🤷‍♀️🤷‍♂️ This referral token is not valid\.")
+            return BotMessage(chat_id, "🤷‍♀️🤷‍♂️ This referral token is not valid\.", parse_mode=ParseMode.MARKDOWN_V2)
         else:
             tg_user.user.referrer = referrer
-            await update.message.reply_markdown_v2(
-                "👍 You have successfully used this referral token\. "
-                "You and the referrer will both receive one week of premium for free! 💫💸"
+            return BotMessage(
+                chat_id,
+                (
+                    "👍 You have successfully used this referral token\. "
+                    "You and the referrer will both receive one week of premium for free! 💫💸"
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2,
             )
+
+
+async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    bot_msg = _referral_handler(update, context)
+    await bot_msg.send(context.bot)
 
 
 def generate_subscription_keyboard(
@@ -111,9 +130,9 @@ def generate_subscription_keyboard(
     return InlineKeyboardMarkup(keyboard_buttons)
 
 
-@add_session
+@session_context
 @ensure_chat
-async def premium_handler(update: Update, context: DbSessionContext) -> None:
+def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
     if update.effective_chat is None or update.effective_message is None:
         raise ValueError("update/chat is None")
 
@@ -142,18 +161,26 @@ async def premium_handler(update: Update, context: DbSessionContext) -> None:
 
         subscription_msg += "\nWould you like to extend your subscription?"
         reply_markup = generate_subscription_keyboard(context, subscriptions[0].id)
-        await update.effective_message.reply_markdown_v2(subscription_msg, reply_markup=reply_markup)
+        return BotMessage(update.effective_chat.id, subscription_msg, reply_markup=reply_markup)
     # case 3: chat has no active subscription
     #  -> ask user if subscription should be bought
     else:
         reply_markup = generate_subscription_keyboard(context)
-        await update.effective_message.reply_markdown_v2(
-            "⌛ You have no active subscription\. Would you like to buy one?", reply_markup=reply_markup
+        return BotMessage(
+            update.effective_chat.id,
+            "⌛ You have no active subscription\. Would you like to buy one?",
+            reply_markup=reply_markup,
         )
 
 
-@add_session
-async def payment_callback(update: Update, context: DbSessionContext, product_id: int) -> None:
+async def premium_handler(update: Update, context: DbSessionContext) -> None:
+    bot_msg = _premium_handler(update, context)
+    await context.bot.send_message(**bot_msg)
+
+
+@session_context
+@ensure_chat
+def _payment_callback(update: Update, context: DbSessionContext, product_id: int) -> BotInvoice:
     if update.effective_chat is None or update.effective_user is None:
         raise ValueError("chat/user is None")
     """Sends an invoice without shipping-payment."""
@@ -180,11 +207,10 @@ async def payment_callback(update: Update, context: DbSessionContext, product_id
     session.add(invoice)
 
     payload = url.encode([PAYMENT_PAYLOAD_TOKEN, invoice.id])
-    session.commit()
 
     # optionally pass need_name=True, need_phone_number=True,
     # need_email=True, need_shipping_address=True, is_flexible=True
-    await context.bot.send_invoice(
+    return BotInvoice(
         chat_id,
         title,
         description,
@@ -195,6 +221,11 @@ async def payment_callback(update: Update, context: DbSessionContext, product_id
         need_email=True,
         protect_content=True,
     )
+
+
+async def payment_callback(update: Update, context: DbSessionContext, product_id: int) -> None:
+    bot_invoice = _payment_callback(update, context, product_id)
+    await bot_invoice.send(context.bot)
 
 
 def check_payment_payload(context: DbSessionContext, invoice_payload: str) -> int:
@@ -209,27 +240,38 @@ def check_payment_payload(context: DbSessionContext, invoice_payload: str) -> in
     return invoice_id
 
 
-@add_session
-async def precheckout_callback(update: Update, context: DbSessionContext) -> None:
+@session_context
+def _precheckout_callback(update: Update, context: DbSessionContext) -> bool:
     """Answers the PreQecheckoutQuery"""
     query = update.pre_checkout_query
     if query is None:
         raise ValueError("update.pre_checkout_query is None")
     # check the payload, is this from your bot?
+    check_payment_payload(context, query.invoice_payload)
+    return True
+
+
+async def precheckout_callback(update: Update, context: DbSessionContext) -> None:
+    """Answers the PreQecheckoutQuery"""
+    query = update.pre_checkout_query
+    if query is None:
+        raise ValueError("update.pre_checkout_query is None")
+
     try:
-        check_payment_payload(context, query.invoice_payload)
+        is_ok = _precheckout_callback(update, context)
     except (json.JSONDecodeError, ValueError):
         await query.answer(
             ok=False, error_message="😕 Something went wrong... Invoice has been cancelled. Support has been contacted."
         )
         raise
 
-    await query.answer(ok=True)
+    await query.answer(ok=is_ok)
 
 
 # finally, after contacting the payment provider...
-@add_session
-async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+@session_context
+@ensure_chat
+def _successful_payment_callback(update: Update, context: DbSessionContext) -> BotMessage:
     context = cast(DbSessionContext, context)
     """Confirms the successful payment."""
     if (
@@ -270,4 +312,9 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
     )
     session.add(subscription)
 
-    await update.message.reply_text(f"Thank you for your payment! Subscription is active until {end_date}")
+    return BotMessage(update.message.chat_id, f"Thank you for your payment! Subscription is active until {end_date}")
+
+
+async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    bot_msg = _successful_payment_callback(update, context)
+    await bot_msg.send(context.bot)
