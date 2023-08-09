@@ -81,6 +81,20 @@ class Language(Base):
         stmt = select(cls).where(cls.ietf_tag == "en")
         return session.execute(stmt).scalar_one()
 
+    @property
+    def flag_emoji(self) -> str:
+        exceptions = {"zh": "cn", "cs": "cz", "el": "gr", "ja": "jp", "ko": "kr", "nb": "no", "da": "dn", "uk": "ua"}
+        _country_code = self.code[-2:]
+        country_code = exceptions.get(_country_code.lower(), _country_code)
+        sequence = map(lambda c: ord(c) + 127397, country_code.upper())
+        return "".join(chr(i) for i in sequence)
+
+    def ietf_tag_from_emoji(self, flag_emoji: str) -> str:
+        # TODO create mapping for exceptions
+        sequence = map(lambda c: ord(c) - 127397, flag_emoji)
+        upper_case_code = "".join(chr(i) for i in sequence)
+        return upper_case_code.lower()
+
 
 class TelegramUser(Base):
     __tablename__ = "telegram_user"

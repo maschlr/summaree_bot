@@ -15,6 +15,7 @@ from ..models.session import DbSessionContext
 from ..utils import url
 from . import BotMessage
 from .db import ensure_chat, session_context
+from .helpers import escape_markdown
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -53,7 +54,10 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         if not target_languages:
             raise ValueError("No languages found in database.")
 
-        return prefix + "<ul>" + "".join(f"<li>{lang.ietf_tag} ({lang.name})</li>" for lang in target_languages)
+        _msg = prefix + "\n".join(f"{lang.flag_emoji} {lang.ietf_tag} [{lang.name}]" for lang in target_languages)
+        return escape_markdown(_msg)
+
+    parse_mode = ParseMode.MARKDOWN_V2
 
     chat = session.get(TelegramChat, update.effective_chat.id)
     if chat is None:
@@ -68,31 +72,34 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                 chat.language = target_language
                 return BotMessage(
                     chat.id,
-                    msg(f"Target language successfully set to: {target_language_ietf_tag} ({target_language.name})"),
+                    msg(
+                        "Target language successfully set to: "
+                        f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]"
+                    ),
                 )
             else:
                 other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)
                 other_available_languages = session.scalars(other_available_languages_stmt).all()
                 answer = (
                     "This language is already configured as the target language: "
-                    f"{chat.language.ietf_tag} ({chat.language.name})\n"
+                    f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n"
                     "Other available languages are:\n\n"
                 )
 
-                return BotMessage(chat.id, msg(answer, other_available_languages), parse_mode=ParseMode.HTML)
+                return BotMessage(chat.id, msg(answer, other_available_languages), parse_mode=parse_mode)
 
         else:
             prefix = (
                 "Unknown target language. Set your target language with `/lang language`.\n"
                 "Available laguages are:\n\n"
             )
-            return BotMessage(chat.id, msg(prefix), parse_mode=ParseMode.HTML)
+            return BotMessage(chat.id, msg(prefix), parse_mode=parse_mode)
 
     except IndexError:
         return BotMessage(
             chat.id,
             msg("Set your target language with `/lang language`. Available languages are: \n\n"),
-            parse_mode=ParseMode.HTML,
+            parse_mode=parse_mode,
         )
 
 
