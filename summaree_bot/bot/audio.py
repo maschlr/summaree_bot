@@ -67,14 +67,14 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     async with asyncio.TaskGroup() as tg:
         start_msg_task = tg.create_task(
             update.message.reply_text(
-                "Received your voice/audio message. Transcribing and summarizing... Please wait a moment."
+                "🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment.",
+                reply_to_message_id=update.message.id,
             )
         )
-        bot_msg_task = tg.create_task(get_summary_msg(update, context))
+        bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
 
-    start_msg = start_msg_task.result()
-    bot_msg = bot_msg_task.result()
-
+    start_message = start_msg_task.result()
+    bot_response_msg = bot_response_msg_task.result()
     async with asyncio.TaskGroup() as tg:
-        tg.create_task(start_msg.delete())
-        tg.create_task(bot_msg.send(context.bot))
+        tg.create_task(start_message.delete())
+        tg.create_task(bot_response_msg.send(context.bot))
