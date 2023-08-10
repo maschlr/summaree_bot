@@ -178,7 +178,7 @@ def _get_summary_message(update: telegram.Update, context: DbSessionContext, sum
     en_lang = Language.get_default_language(session)
     if chat.language != en_lang:
         translations = [
-            _translate(session=session, target_language=chat.language, topic=topic) for topic in summary.topics
+            _translate(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
         ]
         session.add_all(translations)
         msg = "\n".join(f"- {translation.target_text}" for translation in translations)
