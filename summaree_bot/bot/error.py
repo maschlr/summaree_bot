@@ -26,7 +26,7 @@ async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
     _logger.error("Exception while handling an update:", exc_info=context.error)
@@ -58,7 +58,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Finally, send the message
     admin_chat_id = os.getenv("ADMIN_CHAT_ID", 0)
-    await context.bot.send_message(chat_id=admin_chat_id, text=message, parse_mode=ParseMode.HTML)
+    await context.bot.send_message(chat_id=admin_chat_id, text=message, parse_mode=ParseMode.HTML, pool_timeout=10)
 
 
 async def bad_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
