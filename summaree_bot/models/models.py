@@ -168,7 +168,7 @@ class Summary(Base):
     __tablename__ = "summary"
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    transcript_id = mapped_column(ForeignKey("transcript.id"))
+    transcript_id = mapped_column(ForeignKey("transcript.id", ondelete="CASCADE"))
     transcript: Mapped["Transcript"] = relationship(back_populates="summary")
 
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="summary")
@@ -180,7 +180,9 @@ class Topic(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     text: Mapped[str]
-    summary_id: Mapped[int] = mapped_column(ForeignKey("summary.id"))
+    summary_id: Mapped[int] = mapped_column(
+        ForeignKey("summary.id", ondelete="CASCADE"),
+    )
     summary: Mapped["Summary"] = relationship(back_populates="topics")
 
     # one topic can be translated to multiple languages
@@ -198,7 +200,7 @@ class Translation(Base):
     target_lang: Mapped["Language"] = relationship(back_populates="translations")
     target_text: Mapped[str]
 
-    topic_id: Mapped[int] = mapped_column(ForeignKey("topic.id"))
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topic.id", ondelete="CASCADE"))
     topic: Mapped["Topic"] = relationship(back_populates="translations")
 
 
