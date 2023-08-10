@@ -49,11 +49,10 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
 
     stmt = select(Language)
     languages = session.scalars(stmt).all()
+    if not languages:
+        raise ValueError("No languages found in database.")
 
     def msg(prefix: str, target_languages: Sequence[Language] = languages):
-        if not target_languages:
-            raise ValueError("No languages found in database.")
-
         _msg = prefix + "\n".join(f"{lang.flag_emoji} {lang.ietf_tag} [{lang.name}]" for lang in target_languages)
         return escape_markdown(_msg)
 
@@ -74,8 +73,10 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                     chat.id,
                     msg(
                         "Target language successfully set to: "
-                        f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]"
+                        f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]",
+                        [],
                     ),
+                    parse_mode=parse_mode,
                 )
             else:
                 other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)

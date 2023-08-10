@@ -54,6 +54,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         message = message_basic + message_traceback
 
+    # TODO send traceback first, parse in Markdown
+
     # Finally, send the message
     admin_chat_id = os.getenv("ADMIN_CHAT_ID", 0)
     await context.bot.send_message(chat_id=admin_chat_id, text=message, parse_mode=ParseMode.HTML)

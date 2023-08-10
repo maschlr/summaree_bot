@@ -83,7 +83,7 @@ class Language(Base):
 
     @property
     def flag_emoji(self) -> str:
-        exceptions = {"zh": "cn", "cs": "cz", "el": "gr", "ja": "jp", "ko": "kr", "nb": "no", "da": "dn", "uk": "ua"}
+        exceptions = {"zh": "cn", "cs": "cz", "el": "gr", "ja": "jp", "ko": "kr", "nb": "no", "da": "dk", "uk": "ua"}
         _country_code = self.code[-2:]
         country_code = exceptions.get(_country_code.lower(), _country_code)
         sequence = map(lambda c: ord(c) + 127397, country_code.upper())
