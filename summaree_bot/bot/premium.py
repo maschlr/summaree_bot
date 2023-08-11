@@ -173,7 +173,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         )
 
 
-async def premium_handler(update: Update, context: DbSessionContext) -> None:
+async def premium_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _premium_handler(update, context)
     await context.bot.send_message(**bot_msg)
 
@@ -223,7 +223,7 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     )
 
 
-async def payment_callback(update: Update, context: DbSessionContext, product_id: int) -> None:
+async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:
     bot_invoice = _payment_callback(update, context, product_id)
     await bot_invoice.send(context.bot)
 
@@ -251,7 +251,7 @@ def _precheckout_callback(update: Update, context: DbSessionContext) -> bool:
     return True
 
 
-async def precheckout_callback(update: Update, context: DbSessionContext) -> None:
+async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Answers the PreQecheckoutQuery"""
     query = update.pre_checkout_query
     if query is None:

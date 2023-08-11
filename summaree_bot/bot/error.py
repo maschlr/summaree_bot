@@ -1,7 +1,7 @@
 import json
 import os
 import traceback
-from typing import Iterator
+from typing import Iterator, Union
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -28,7 +28,7 @@ async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-def _error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Iterator[BotMessage]:
+def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> Iterator[BotMessage]:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
     _logger.error("Exception while handling an update:", exc_info=context.error)
@@ -59,7 +59,7 @@ def _error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Iterat
         yield BotMessage(chat_id=admin_chat_id, text=escaped_msg[:4096], parse_mode=ParseMode.MARKDOWN, pool_timeout=10)
 
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> None:
     for bot_msg in _error_handler(update, context):
         await bot_msg.send(context.bot)
 

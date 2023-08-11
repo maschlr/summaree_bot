@@ -361,7 +361,7 @@ def _activate(update: Update, context: DbSessionContext) -> BotMessage:
         )
 
 
-async def activate(update: Update, context: DbSessionContext) -> None:
+async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _activate(update, context)
     await bot_msg.send(context.bot)
 
