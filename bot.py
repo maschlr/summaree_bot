@@ -41,7 +41,7 @@ def main() -> None:
             Application.builder()
             .token(telegram_bot_token)
             .arbitrary_callback_data(True)
-            .pool_timeout(10)
+            .pool_timeout(5)
             .concurrent_updates(True)
             .build()
         )
