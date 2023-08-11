@@ -33,10 +33,10 @@ chats_to_users_rel = Table(
 
 
 class User(Base):
-    __tablename__ = "user"
+    __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    telegram_user_id: Mapped[int] = mapped_column(ForeignKey("telegram_user.id"))
+    telegram_user_id: Mapped[int] = mapped_column(ForeignKey("telegram_user.id", ondelete="CASCADE"))
     telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
     email: Mapped[Optional[str]]
     email_token: Mapped["EmailToken"] = relationship(back_populates="user")
@@ -45,7 +45,7 @@ class User(Base):
     referral_token: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4), unique=True)
 
     # https://docs.sqlalchemy.org/en/20/orm/self_referential.html#self-referential
-    referrer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"))
+    referrer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     referrals: Mapped[List["User"]] = relationship("User", back_populates="referrer")
     referrer: Mapped["User"] = relationship("User", back_populates="referrals", remote_side=[id])
 
@@ -60,7 +60,7 @@ class EmailToken(Base):
     active: Mapped[bool] = mapped_column(default=False)
     expires_at: Mapped[Optional[datetime]]
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     user: Mapped["User"] = relationship(back_populates="email_token")
 
 
@@ -223,10 +223,10 @@ class Subscription(Base):
     __tablename__ = "subscription"
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     user: Mapped["User"] = relationship(back_populates="subscriptions")
 
-    chat_id: Mapped[int] = mapped_column(ForeignKey("telegram_chat.id"))
+    chat_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_chat.id"))
     chat: Mapped["TelegramChat"] = relationship(back_populates="subscriptions")
 
     active: Mapped[bool] = mapped_column(default=True)
@@ -260,12 +260,12 @@ class Invoice(Base):
     status: Mapped[InvoiceStatus] = mapped_column(sqlalchemy.Enum(InvoiceStatus), default=InvoiceStatus.draft)
     title: Mapped[str] = mapped_column(default="summar.ee bot Subscription")
     description: Mapped[str] = mapped_column(default="Premium Features: Unlimited summaries, unlimited translations")
-    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     user: Mapped["User"] = relationship(back_populates="invoices")
     # TODO map with user email, send token and activate
     email: Mapped[Optional[str]]
 
-    chat_id: Mapped[int] = mapped_column(ForeignKey("telegram_chat.id"))
+    chat_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_chat.id"))
     chat: Mapped["TelegramChat"] = relationship(back_populates="invoices")
 
     product_id: Mapped[int] = mapped_column(ForeignKey("product.id"))
