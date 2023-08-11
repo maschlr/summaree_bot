@@ -98,4 +98,4 @@ class BotInvoice(BotResponse):
 def escape_markdown(text: str) -> str:
     """Helper function to escape telegram markup symbols"""
     escape_chars = r"\*_\[]().!#+{}~>-"
-    return "".join(rf"\{c}" if c in escape_chars else c for c in text)
+    return r"".join(rf"\{c}" if c in escape_chars else c for c in text)

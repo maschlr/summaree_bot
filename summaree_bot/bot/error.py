@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import traceback
@@ -9,7 +10,6 @@ from telegram.ext import ContextTypes
 
 from ..logging import getLogger
 from . import BotMessage
-from .helpers import escape_markdown
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -40,14 +40,12 @@ def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_
     tb_string = "".join(tb_list)
 
     # Build the message with some markup and additional information about what happened.
-    message_traceback = "An exception was raised while handling an update\n" f"```\n{tb_string}\n```"
+    message_traceback = "An exception was raised while handling an update\n" f"<pre>\n{html.escape(tb_string)}\n</pre>"
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
     message_update = (
-        "```\n"
-        f"update = {json.dumps(update_str, indent=2, ensure_ascii=False)}\n"
-        f"context.chat_data = {str(context.chat_data)}\n\n"
-        f"context.user_data = {str(context.user_data)}\n"
-        "```"
+        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}</pre>\n"
+        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
+        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n"
     )
 
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
@@ -55,8 +53,7 @@ def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_
         raise ValueError("ADMIN_CHAT_ID environment variable not set")
 
     for msg in (message_traceback, message_update):
-        escaped_msg = escape_markdown(msg)
-        yield BotMessage(chat_id=admin_chat_id, text=escaped_msg[:4096], parse_mode=ParseMode.MARKDOWN, pool_timeout=10)
+        yield BotMessage(chat_id=admin_chat_id, text=msg[:4096], parse_mode=ParseMode.HTML, pool_timeout=10)
 
 
 async def error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> None:
