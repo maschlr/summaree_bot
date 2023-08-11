@@ -40,19 +40,28 @@ def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_
     tb_string = "".join(tb_list)
 
     # Build the message with some markup and additional information about what happened.
-    message_traceback = "An exception was raised while handling an update\n" f"<pre>\n{html.escape(tb_string)}\n</pre>"
+    def wrap_in_pre(text: str) -> str:
+        msg = html.escape(text)
+        wrapped_msg = f"<pre>{msg}</pre>"
+        len_wrapped_msg = len(wrapped_msg)
+        if len_wrapped_msg > 4096:
+            return wrap_in_pre(text[: -(len_wrapped_msg - 4096)])
+        return wrapped_msg
+
+    message_generic = "An exception was raised while handling an update"
+    message_traceback = wrap_in_pre(f"{html.escape(tb_string)}")
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
-    message_update = (
-        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}</pre>\n"
-        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n"
+    message_update = wrap_in_pre(
+        f"update = {json.dumps(update_str, indent=2, ensure_ascii=False)}\n"
+        f"context.chat_data = {str(context.chat_data)}\n\n"
+        f"context.user_data = {str(context.user_data)}\n"
     )
 
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if admin_chat_id is None:
         raise ValueError("ADMIN_CHAT_ID environment variable not set")
 
-    for msg in (message_traceback, message_update):
+    for msg in (message_generic, message_traceback, message_update):
         yield BotMessage(chat_id=admin_chat_id, text=msg[:4096], parse_mode=ParseMode.HTML, pool_timeout=10)
 
 
