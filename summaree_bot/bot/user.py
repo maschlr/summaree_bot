@@ -139,10 +139,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         result = _start(update, context)
-    except (ValueError, KeyError, binascii.Error, json.JSONDecodeError):
+    except (ValueError, KeyError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
         bot_msg = BotMessage(
             update.message.chat_id,
-            "😵‍💫 Receiced invalid argument(s) \(`{context.args}`\)",
+            escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)"),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         await bot_msg.send(context.bot)
