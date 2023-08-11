@@ -1,13 +1,15 @@
-import html
 import json
 import os
 import traceback
+from typing import Iterator
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..logging import getLogger
+from . import BotMessage
+from .helpers import escape_markdown
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -26,7 +28,7 @@ async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def _error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Iterator[BotMessage]:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
     _logger.error("Exception while handling an update:", exc_info=context.error)
@@ -38,27 +40,28 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     tb_string = "".join(tb_list)
 
     # Build the message with some markup and additional information about what happened.
+    message_traceback = "An exception was raised while handling an update\n" f"```\n{tb_string}\n```"
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
-
-    message_basic = (
-        f"An exception was raised while handling an update\n"
-        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-        "</pre>\n\n"
-        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+    message_update = (
+        "```\n"
+        f"update = {json.dumps(update_str, indent=2, ensure_ascii=False)}\n"
+        f"context.chat_data = {str(context.chat_data)}\n\n"
+        f"context.user_data = {str(context.user_data)}\n"
+        "```"
     )
-    message_traceback = f"<pre>{html.escape(tb_string)}</pre>"
 
-    if len(message_basic + message_traceback) >= 4096:
-        message = message_basic
-    else:
-        message = message_basic + message_traceback
+    admin_chat_id = os.getenv("ADMIN_CHAT_ID")
+    if admin_chat_id is None:
+        raise ValueError("ADMIN_CHAT_ID environment variable not set")
 
-    # TODO send traceback first, parse in Markdown
+    for msg in (message_traceback, message_update):
+        escaped_msg = escape_markdown(msg)
+        yield BotMessage(chat_id=admin_chat_id, text=escaped_msg[:4096], parse_mode=ParseMode.MARKDOWN, pool_timeout=10)
 
-    # Finally, send the message
-    admin_chat_id = os.getenv("ADMIN_CHAT_ID", 0)
-    await context.bot.send_message(chat_id=admin_chat_id, text=message, parse_mode=ParseMode.HTML, pool_timeout=10)
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    for bot_msg in _error_handler(update, context):
+        await bot_msg.send(context.bot)
 
 
 async def bad_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
