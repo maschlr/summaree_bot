@@ -37,7 +37,14 @@ def main() -> None:
     """Start the bot."""
     # Create the Application and pass it your bot's token.
     if telegram_bot_token := os.getenv("TELEGRAM_BOT_TOKEN"):
-        application = Application.builder().token(telegram_bot_token).arbitrary_callback_data(True).build()
+        application = (
+            Application.builder()
+            .token(telegram_bot_token)
+            .arbitrary_callback_data(True)
+            .pool_timeout(10)
+            .concurrent_updates(True)
+            .build()
+        )
     else:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set.")
 
