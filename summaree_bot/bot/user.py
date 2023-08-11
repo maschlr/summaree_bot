@@ -120,7 +120,7 @@ def _start(update: Update, context: DbSessionContext) -> Union[Callable, BotMess
         # "ref": referral,
         "activate": activate
     }
-    if context is not None and context.args is not None:
+    if context is not None and context.args is not None and len(context.args):
         [b64_data] = context.args
         callback_data = cast(Sequence, url.decode(b64_data))
         fnc_key, *args = callback_data
