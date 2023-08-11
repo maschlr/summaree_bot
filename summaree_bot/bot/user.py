@@ -140,6 +140,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         result = _start(update, context)
     except (ValueError, KeyError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
+        _logger.warning("Received invalid start handler argument(s) (%s)", context.args)
         bot_msg = BotMessage(
             update.message.chat_id,
             escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)"),
