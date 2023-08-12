@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from sqlalchemy import create_engine
@@ -10,7 +11,7 @@ from summaree_bot.models import Base, Language, session
 class Common(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        engine = create_engine("sqlite:///:memory:", echo=True)
+        engine = create_engine(os.getenv("TEST_DB_URL"))
         Base.metadata.create_all(engine)
         cls.Session = sessionmaker(bind=engine)
         # monkey patch to avoid writing to real database
