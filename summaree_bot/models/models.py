@@ -6,6 +6,7 @@ from typing import List, Optional
 import sqlalchemy
 from sqlalchemy import Column, ForeignKey, MetaData, Table, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+from sqlalchemy.types import BigInteger
 
 
 class Base(DeclarativeBase):
@@ -98,7 +99,7 @@ class Language(Base):
 
 class TelegramUser(Base):
     __tablename__ = "telegram_user"
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column("id", BigInteger, primary_key=True)
     is_bot: Mapped[bool] = mapped_column(default=False)
     first_name: Mapped[str]
     last_name: Mapped[Optional[str]]
@@ -114,7 +115,7 @@ class TelegramUser(Base):
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column("id", BigInteger, primary_key=True)
     type: Mapped[str]
 
     title: Mapped[Optional[str]]
