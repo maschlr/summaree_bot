@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from .premium import payment_callback
-from .user import edit_email, send_token_email
+from .user import edit_email, send_token_email, set_lang
 
 __all__ = ["remove_inline_keyboard", "dispatch_callback"]
 
@@ -30,11 +30,12 @@ async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     callback_data = cast(dict[str, Any], query.data)
     fnc_key = callback_data["fnc"]
 
-    callback_fnc_mapping = {
+    callback_fnc_mapping: dict[str, Callable] = {
         "resend_email": send_token_email,
         "edit_email": edit_email,
         "remove_inline_keyboard": remove_inline_keyboard,
         "buy_or_extend_subscription": payment_callback,
+        "set_lang": set_lang,
     }
     fnc: Callable = callback_fnc_mapping[fnc_key]
     args: list = callback_data.get("args", [])

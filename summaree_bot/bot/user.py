@@ -40,7 +40,7 @@ MSG = (
 @ensure_chat
 def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     """Set the target language when /lang {language_code} is issued."""
-    if update.message is None or update.effective_chat is None:
+    if update.effective_chat is None:
         raise ValueError("The update must contain a message.")
 
     session = context.db_session
@@ -97,15 +97,44 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             return BotMessage(chat.id, msg(prefix), parse_mode=parse_mode)
 
     except IndexError:
+        # Give the user 4 options, not the one they already have
+        common_languages_ietf_tag = ["en", "ru", "zh", "es", "fr"]
+        if chat.language.ietf_tag in common_languages_ietf_tag:
+            common_languages_ietf_tag.remove(chat.language.ietf_tag)
+            ietf_language_code_set = common_languages_ietf_tag
+        else:
+            ietf_language_code_set = common_languages_ietf_tag[:4]
+        common_languages_stmt = select(Language).where(Language.ietf_tag.in_(ietf_language_code_set))
+        common_languages = session.scalars(common_languages_stmt).all()
+        buttons = []
+        callback_data = {"fnc": "set_lang"}
+        for idx in range(0, 4, 2):
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"{lang.flag_emoji} {lang.name}",
+                        callback_data=dict(**callback_data, kwargs={"ietf_tag": lang.ietf_tag}),
+                    )
+                    for lang in common_languages[idx : idx + 2]
+                ]
+            )
+        reply_markup = InlineKeyboardMarkup(buttons)
         return BotMessage(
             chat.id,
-            msg("Set your target language with `/lang language`. Available languages are: \n\n"),
+            msg(
+                "Your can either choose one of the languages below or "
+                "set your target language with `/lang` followed by the language short code from the following list. "
+                "Example for English type: `/lang en`. Available languages are: \n\n"
+            ),
             parse_mode=parse_mode,
+            reply_markup=reply_markup,
         )
 
 
-async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None) -> None:
     """Set the target language when /lang {language_code} is issued."""
+    if ietf_tag is not None:
+        context.args = [ietf_tag]
     bot_msg = _set_lang(update, context)
     await bot_msg.send(context.bot)
 
