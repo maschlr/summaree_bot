@@ -37,7 +37,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    telegram_user_id: Mapped[int] = mapped_column(ForeignKey("telegram_user.id", ondelete="CASCADE"))
+    telegram_user_id: Mapped[int] = mapped_column(
+        "telegram_user_id", BigInteger, ForeignKey("telegram_user.id", ondelete="CASCADE")
+    )
     telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
     email: Mapped[Optional[str]]
     email_token: Mapped["EmailToken"] = relationship(back_populates="user")
