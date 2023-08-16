@@ -54,7 +54,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # add button for elaboration
         button = [
             InlineKeyboardButton(
-                "Give me more", callback_data={"fnc": "elaborate", "kwargs": {"summary_id": summary.id}}
+                "🪄 Give me more", callback_data={"fnc": "elaborate", "kwargs": {"summary_id": summary.id}}
             )
         ]
         bot_msg.reply_markup = InlineKeyboardMarkup([button])
