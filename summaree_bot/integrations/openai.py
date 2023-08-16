@@ -13,7 +13,7 @@ from sqlalchemy import select
 from ..bot import BotMessage, ensure_chat
 from ..models import Language, Summary, TelegramChat, Topic, Transcript
 from ..models.session import DbSessionContext, session_context
-from .deepl import _translate
+from .deepl import _translate, translator
 
 _logger = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     if transcript.summary is not None:
         return transcript.summary
 
-    with open(Path(__file__).parent / "data" / "prompt.txt") as fp:
+    with open(Path(__file__).parent / "data" / "summarize.txt") as fp:
         system_msgs = [line.strip() for line in fp.readlines()]
 
     user_message = transcript.result
@@ -162,6 +162,50 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     )
     session.add(summary)
     return summary
+
+
+@session_context
+def _elaborate(update: telegram.Update, context: DbSessionContext, summary_id: int) -> BotMessage:
+    if update.effective_chat is None:
+        raise ValueError("The update must contain a chat.")
+
+    session = context.db_session
+    summary = session.get(Summary, summary_id)
+    if summary is None:
+        raise ValueError(f"Could not find summary with id {summary_id}")
+
+    with open(Path(__file__).parent / "data" / "elaborate.txt") as fp:
+        system_msg = fp.read().strip()
+
+    topic_str = r"\n".join(f"- {topic.text}" for topic in summary.topics)
+    messages = [
+        {"role": "system", "content": system_msg},
+        {
+            "role": "user",
+            "content": f"""
+Transcript:
+{summary.transcript.result}
+
+Topics:
+{topic_str}
+""",
+        },
+    ]
+
+    elaboration_result = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo-0613",
+        messages=messages,
+    )
+    [choice] = elaboration_result["choices"]
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    en_msg = choice["message"]["content"]
+    if chat is None or chat.language.ietf_tag == "en":
+        msg = en_msg
+    else:
+        deepl_result = translator.translate_text(en_msg, target_lang=chat.language.code)
+        msg = deepl_result.text
+    # TODO: this might generate messages that are too long; handle that case
+    return BotMessage(update.effective_chat.id, msg)
 
 
 @session_context

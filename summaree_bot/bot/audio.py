@@ -4,11 +4,13 @@ from pathlib import Path
 from typing import Any, Coroutine, cast
 
 import magic
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from ..integrations import (
     _check_existing_transcript,
+    _elaborate,
     _extract_file_name,
     _get_summary_message,
     _summarize,
@@ -45,13 +47,35 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
                 transcript = _transcribe_file(update, context, file_path, voice_or_audio)
 
-        #   if exists but not summarized, summarize
         summary = _summarize(update, context, transcript)
 
-        # check translations of summary
-        # TODO: premium feature
         bot_msg = _get_summary_message(update, context, summary)
+
+        # add button for elaboration
+        button = [
+            InlineKeyboardButton(
+                "Give me more", callback_data={"fnc": "elaborate", "kwargs": {"summary_id": summary.id}}
+            )
+        ]
+        bot_msg.reply_markup = InlineKeyboardMarkup([button])
+
     return bot_msg
+
+
+async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, summary_id: int) -> None:
+    if update.effective_chat is None:
+        raise ValueError("The update must contain a chat.")
+
+    wait_msg = await context.bot.send_message(
+        update.effective_chat.id, "📥 Received your request.\n☕ Elaborating...\n⏳ Please wait a moment."
+    )
+    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+
+    bot_msg = _elaborate(update, context, summary_id)
+
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(wait_msg.delete())
+        tg.create_task(bot_msg.send(context.bot))
 
 
 async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
