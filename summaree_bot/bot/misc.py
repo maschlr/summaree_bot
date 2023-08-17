@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 
 from .audio import elaborate
 from .premium import payment_callback
-from .user import edit_email, send_token_email, set_lang
+from .user import edit_email, send_token_email, set_lang_callback
 
 __all__ = ["remove_inline_keyboard", "dispatch_callback"]
 
@@ -36,7 +36,7 @@ async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "edit_email": edit_email,
         "remove_inline_keyboard": remove_inline_keyboard,
         "buy_or_extend_subscription": payment_callback,
-        "set_lang": set_lang,
+        "set_lang": set_lang_callback,
         "elaborate": elaborate,
     }
     fnc: Callable = callback_fnc_mapping[fnc_key]

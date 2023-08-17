@@ -131,9 +131,16 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         )
 
 
-async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None) -> None:
+async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None) -> None:
+    if context.chat_data is None:
+        context.chat_data = {}
+    context.chat_data["ietf_tag"] = ietf_tag
+    await set_lang(update, context)
+
+
+async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Set the target language when /lang {language_code} is issued."""
-    if ietf_tag is not None:
+    if context.chat_data is not None and (ietf_tag := context.chat_data.get("ietf_tag")):
         context.args = [ietf_tag]
     bot_msg = _set_lang(update, context)
     await bot_msg.send(context.bot)
@@ -146,7 +153,7 @@ def _start(update: Update, context: DbSessionContext) -> Union[Callable, BotMess
         raise ValueError("The update must contain a message and a user.")
 
     fnc_mapping = {
-        # "ref": referral,
+        # TODO "ref": referral,
         "activate": activate
     }
     if context is not None and context.args is not None and len(context.args):
@@ -180,8 +187,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if isinstance(result, BotMessage):
         await result.send(context.bot)
+        await help(update, context)
     else:
         await result()
+
+
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        raise ValueError("The update must contain a message.")
+
+    commmands = await context.bot.get_my_commands()
+    bot_msg = BotMessage(
+        update.message.chat_id,
+        "Available commands are:\n" + "\n".join(f"/{command.command} - {command.description}" for command in commmands),
+    )
+    await bot_msg.send(context.bot)
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
