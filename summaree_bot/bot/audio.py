@@ -67,7 +67,7 @@ async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, summary_
         raise ValueError("The update must contain a chat.")
 
     wait_msg = await context.bot.send_message(
-        update.effective_chat.id, "📥 Received your request.\n☕ Elaborating...\n⏳ Please wait a moment."
+        update.effective_chat.id, "📥 Received your request and processing it....⏳\n Please wait a moment. ☕"
     )
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
