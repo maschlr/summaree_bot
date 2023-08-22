@@ -83,9 +83,16 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         update.message is None
         or update.effective_chat is None
         or update.effective_user is None
-        or (update.message.voice is None and update.message.audio is None)
+        or ((voice := update.message.voice) is None and (audio := update.message.audio) is None)
     ):
         raise ValueError("The update must contain chat/user/voice/audio message.")
+
+    file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
+    if file_size > 20 * 1024 * 1024:
+        await update.message.reply_text(
+            "🚫 Sorry, the file is too big to be processed (max. 20MB). Please send a smaller file."
+        )
+        return
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
     async with asyncio.TaskGroup() as tg:
