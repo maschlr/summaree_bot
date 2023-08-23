@@ -139,11 +139,11 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         return transcript.summary
 
     with open(Path(__file__).parent / "data" / "summarize.txt") as fp:
-        system_msgs = [line.strip() for line in fp.readlines()]
+        system_msg = fp.read()
 
     user_message = transcript.result
     messages = [
-        *[{"role": "system", "content": system_msg} for system_msg in system_msgs],
+        {"role": "system", "content": system_msg},
         {"role": "user", "content": user_message},
     ]
 
