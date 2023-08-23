@@ -1,3 +1,4 @@
+import io
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -51,8 +52,17 @@ class BotMessage(BotResponse):
     pool_timeout: Union[float, None] = None
     api_kwargs: Optional[dict] = None
 
+    def split(self, every=4096) -> Iterator[str]:
+        buffer = io.StringIO(self.text)
+        chunk = buffer.read(every)
+        while chunk:
+            yield chunk
+            chunk = buffer.read(every)
+
     async def send(self, bot: ExtBot) -> None:
-        await bot.send_message(**self)
+        kwargs_wo_text = {key: value for key, value in self.items() if key != "text"}
+        for chunk in self.split():
+            await bot.send_message(text=chunk, **kwargs_wo_text)
 
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.bot.html#telegram.Bot.send_invoice
