@@ -70,8 +70,8 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             if chat.language != target_language:
                 chat.language = target_language
                 return BotMessage(
-                    chat.id,
-                    msg(
+                    chat_id=chat.id,
+                    text=msg(
                         "Target language successfully set to: "
                         f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]",
                         [],
@@ -87,14 +87,14 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                     "Other available languages are:\n\n"
                 )
 
-                return BotMessage(chat.id, msg(answer, other_available_languages), parse_mode=parse_mode)
+                return BotMessage(chat_id=chat.id, text=msg(answer, other_available_languages), parse_mode=parse_mode)
 
         else:
             prefix = (
                 "Unknown target language. Set your target language with `/lang language`.\n"
                 "Available laguages are:\n\n"
             )
-            return BotMessage(chat.id, msg(prefix), parse_mode=parse_mode)
+            return BotMessage(chat_id=chat.id, text=msg(prefix), parse_mode=parse_mode)
 
     except IndexError:
         # Give the user 4 options, not the one they already have
@@ -120,8 +120,8 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             )
         reply_markup = InlineKeyboardMarkup(buttons)
         return BotMessage(
-            chat.id,
-            msg(
+            chat_id=chat.id,
+            text=msg(
                 "Your can either choose one of the languages below or "
                 "set your target language with `/lang` followed by the language short code from the following list. "
                 "Example for English type: `/lang en`. Available languages are: \n\n"
@@ -164,7 +164,9 @@ def _start(update: Update, context: DbSessionContext) -> Union[Callable, BotMess
         return lambda: fnc(update, context, *args)
 
     user = update.effective_user
-    bot_msg = BotMessage(update.message.chat_id, f"Hi {user.mention_html()}! " + MSG, ParseMode.HTML)
+    bot_msg = BotMessage(
+        chat_id=update.message.chat_id, text=f"Hi {user.mention_html()}! " + MSG, parse_mode=ParseMode.HTML
+    )
     return bot_msg
 
 
@@ -178,8 +180,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except (ValueError, KeyError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
         _logger.warning("Received invalid start handler argument(s) (%s)", context.args)
         bot_msg = BotMessage(
-            update.message.chat_id,
-            escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)"),
+            chat_id=update.message.chat_id,
+            text=escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)"),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
         await bot_msg.send(context.bot)
@@ -198,8 +200,9 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     commmands = await context.bot.get_my_commands()
     bot_msg = BotMessage(
-        update.message.chat_id,
-        "Available commands are:\n" + "\n".join(f"/{command.command} - {command.description}" for command in commmands),
+        chat_id=update.message.chat_id,
+        text="Available commands are:\n"
+        + "\n".join(f"/{command.command} - {command.description}" for command in commmands),
     )
     await bot_msg.send(context.bot)
 
@@ -224,8 +227,8 @@ def _register(update: Update, context: DbSessionContext) -> Sequence[Union[BotMe
     except ValueError:
         return [
             BotMessage(
-                update.message.chat_id,
-                r"""Command usage:
+                chat_id=update.message.chat_id,
+                text=r"""Command usage:
     `/register \<email_address\>`
             """,
                 parse_mode=ParseMode.MARKDOWN_V2,
@@ -234,8 +237,8 @@ def _register(update: Update, context: DbSessionContext) -> Sequence[Union[BotMe
     if not is_valid_email(email_address):
         return [
             BotMessage(
-                update.message.chat_id,
-                f"""⚠️ The message you've entered doesn't look like a valid email address (`{email_address}`)""",
+                chat_id=update.message.chat_id,
+                text=f"""⚠️ The message you've entered doesn't look like a valid email address (`{email_address}`)""",
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         ]
@@ -257,8 +260,8 @@ def _register(update: Update, context: DbSessionContext) -> Sequence[Union[BotMe
             reply_markup = InlineKeyboardMarkup(keyboard)
             return [
                 BotMessage(
-                    update.message.chat_id,
-                    msg + rf"Would you like to change your email to `{email_address}`?",
+                    chat_id=update.message.chat_id,
+                    text=msg + rf"Would you like to change your email to `{email_address}`?",
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=reply_markup,
                 )
@@ -276,14 +279,18 @@ def _register(update: Update, context: DbSessionContext) -> Sequence[Union[BotMe
             reply_markup = InlineKeyboardMarkup(keyboard)
             return [
                 BotMessage(
-                    update.message.chat_id,
-                    msg,
+                    chat_id=update.message.chat_id,
+                    text=msg,
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=reply_markup,
                 )
             ]
         elif tg_user.user.email and tg_user.user.email_token.active and not new_email:
-            return [BotMessage(update.message.chat_id, "Your email is already activated. Everything is fine. 😊")]
+            return [
+                BotMessage(
+                    chat_id=update.message.chat_id, text="Your email is already activated. Everything is fine. 😊"
+                )
+            ]
 
     # new user
     if not tg_user.user:
@@ -323,10 +330,14 @@ def _send_token_email(update: Update, context: DbSessionContext) -> Sequence[Uni
         reply_markup = None
 
     if success:
-        operations.append(BotMessage(chat.id, "📬 Email sent! Please check your inbox and activate your account."))
+        operations.append(
+            BotMessage(chat_id=chat.id, text="📬 Email sent! Please check your inbox and activate your account.")
+        )
     else:
         operations.append(
-            BotMessage(chat.id, "😵‍💫 Something went wrong. Please try again later.", reply_markup=reply_markup)
+            BotMessage(
+                chat_id=chat.id, text="😵‍💫 Something went wrong. Please try again later.", reply_markup=reply_markup
+            )
         )
 
     return operations
@@ -376,8 +387,8 @@ def _activate(update: Update, context: DbSessionContext) -> BotMessage:
         raise ValueError("The update must contain a user.")
     elif context.args is None or len(context.args) != 1:
         bot_msg = BotMessage(
-            update.message.chat_id,
-            r"""Command usage:
+            chat_id=update.message.chat_id,
+            text=r"""Command usage:
     `/activate \<token\>`
         """,
             parse_mode=ParseMode.MARKDOWN_V2,
@@ -392,7 +403,7 @@ def _activate(update: Update, context: DbSessionContext) -> BotMessage:
     # case 1: no email registered -> show help message
     if not tg_user.user:
         msg = r"""You haven't registered yet. Please use the `/register \<email\>` command to register\."""
-        return BotMessage(update.message.chat_id, msg, parse_mode=ParseMode.MARKDOWN_V2)
+        return BotMessage(chat_id=update.message.chat_id, text=msg, parse_mode=ParseMode.MARKDOWN_V2)
 
     stmt = select(EmailToken).where(EmailToken.value == context.args[0])
     token = session.execute(stmt).scalar_one_or_none()
@@ -400,14 +411,16 @@ def _activate(update: Update, context: DbSessionContext) -> BotMessage:
     # case 3: token does not belong to user
     if token is None or token.user.telegram_user_id != tg_user.id:
         msg = r"""⚠️ The token you've entered is invalid. Please check your inbox and try again."""
-        return BotMessage(update.message.chat_id, msg, parse_mode=ParseMode.MARKDOWN_V2)
+        return BotMessage(chat_id=update.message.chat_id, text=msg, parse_mode=ParseMode.MARKDOWN_V2)
 
     # case 3: email registered but not activated -> activate
     else:
         token.active = True
         # TODO: add 10 day free premium trial
         return BotMessage(
-            update.message.chat_id, r"""✅ Your account has been activated\! 🚀""", parse_mode=ParseMode.MARKDOWN_V2
+            chat_id=update.message.chat_id,
+            text=r"""✅ Your account has been activated\! 🚀""",
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
 
 

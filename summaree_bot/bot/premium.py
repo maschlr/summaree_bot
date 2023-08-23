@@ -49,11 +49,11 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
     chat_id = update.message.chat.id
     if tg_user is None or tg_user.user is None:
         msg = "✋💸 In order to use referrals, please `/register` your email first\. 📧"
-        return BotMessage(chat_id, msg, parse_mode=ParseMode.MARKDOWN_V2)
+        return BotMessage(chat_id=chat_id, text=msg, parse_mode=ParseMode.MARKDOWN_V2)
     elif not tg_user.user.email_token.active:
         return BotMessage(
-            chat_id,
-            (
+            chat_id=chat_id,
+            text=(
                 "✋💸 Your email is not verified\. Please check your inbox and click the link in the email\. "
                 "Use `/register` to re-send email or change email address\."
             ),
@@ -63,8 +63,8 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
         # case 2: no context.args -> list token and referred users
         n_referrals = len(tg_user.user.referrals)
         return BotMessage(
-            chat_id,
-            (
+            chat_id=chat_id,
+            text=(
                 f"👥 Your referral token is `{tg_user.user.referral_token}`\.\n\n"
                 f"💫 You have referred {n_referrals} users\. "
                 f"In total, you have received {n_referrals*7} days of free premium\! 💸"
@@ -76,12 +76,14 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
         stmt = select(User).where(User.referral_token == context.args[0])
         referrer = session.execute(stmt).scalar_one_or_none()
         if referrer is None:
-            return BotMessage(chat_id, "🤷‍♀️🤷‍♂️ This referral token is not valid\.", parse_mode=ParseMode.MARKDOWN_V2)
+            return BotMessage(
+                chat_id=chat_id, text="🤷‍♀️🤷‍♂️ This referral token is not valid\.", parse_mode=ParseMode.MARKDOWN_V2
+            )
         else:
             tg_user.user.referrer = referrer
             return BotMessage(
-                chat_id,
-                (
+                chat_id=chat_id,
+                text=(
                     "👍 You have successfully used this referral token\. "
                     "You and the referrer will both receive one week of premium for free! 💫💸"
                 ),
@@ -161,14 +163,14 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
 
         subscription_msg += "\nWould you like to extend your subscription?"
         reply_markup = generate_subscription_keyboard(context, subscriptions[0].id)
-        return BotMessage(update.effective_chat.id, subscription_msg, reply_markup=reply_markup)
+        return BotMessage(chat_id=update.effective_chat.id, text=subscription_msg, reply_markup=reply_markup)
     # case 3: chat has no active subscription
     #  -> ask user if subscription should be bought
     else:
         reply_markup = generate_subscription_keyboard(context)
         return BotMessage(
-            update.effective_chat.id,
-            "⌛ You have no active subscription\. Would you like to buy one?",
+            chat_id=update.effective_chat.id,
+            text="⌛ You have no active subscription\. Would you like to buy one?",
             reply_markup=reply_markup,
         )
 
@@ -211,13 +213,13 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     # optionally pass need_name=True, need_phone_number=True,
     # need_email=True, need_shipping_address=True, is_flexible=True
     return BotInvoice(
-        chat_id,
-        title,
-        description,
-        str(payload, "ascii"),
-        STRIPE_TOKEN,
-        currency,
-        prices,
+        chat_id=chat_id,
+        title=title,
+        description=description,
+        payload=str(payload, "ascii"),
+        provider_token=STRIPE_TOKEN,
+        currency=currency,
+        prices=prices,
         need_email=True,
         protect_content=True,
     )
@@ -312,7 +314,9 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     )
     session.add(subscription)
 
-    return BotMessage(update.message.chat_id, f"Thank you for your payment! Subscription is active until {end_date}")
+    return BotMessage(
+        chat_id=update.message.chat_id, text=f"Thank you for your payment! Subscription is active until {end_date}"
+    )
 
 
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

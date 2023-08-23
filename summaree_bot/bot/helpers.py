@@ -1,9 +1,11 @@
 import io
+import pathlib
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Iterator, Optional, Sequence, Union
 
+import telegram
 from telegram import (
     ForceReply,
     InlineKeyboardMarkup,
@@ -16,9 +18,14 @@ from telegram.constants import ParseMode
 from telegram.ext import ExtBot
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BotResponse(Mapping, ABC):
     chat_id: Union[int, str]
+    read_timeout: Union[float, None] = None
+    write_timeout: Union[float, None] = None
+    connect_timeout: Union[float, None] = None
+    pool_timeout: Union[float, None] = None
+    api_kwargs: Optional[dict] = None
 
     def __getitem__(self, __key: Any) -> Any:
         return asdict(self)[__key]
@@ -46,11 +53,6 @@ class BotMessage(BotResponse):
     allow_sending_without_reply: Optional[bool] = None
     reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, ForceReply]] = None
     message_thread_id: Optional[int] = None
-    read_timeout: Union[float, None] = None
-    write_timeout: Union[float, None] = None
-    connect_timeout: Union[float, None] = None
-    pool_timeout: Union[float, None] = None
-    api_kwargs: Optional[dict] = None
 
     def split(self, every=4096) -> Iterator[str]:
         buffer = io.StringIO(self.text)
@@ -95,14 +97,30 @@ class BotInvoice(BotResponse):
     suggested_tip_amounts: Optional[Sequence[int]] = None
     protect_content: Optional[bool] = None
     message_thread_id: Optional[int] = None
-    read_timeout: Optional[float] = None
-    write_timeout: Optional[float] = None
-    connect_timeout: Optional[float] = None
-    pool_timeout: Optional[float] = None
-    api_kwargs: Optional[dict] = None
 
     async def send(self, bot: ExtBot) -> None:
         await bot.send_invoice(**self)
+
+
+@dataclass
+class BotDocument(BotResponse):
+    document: Union[str, io.IOBase | bytes | pathlib.Path | telegram.Document]
+    caption: Optional[str] = None
+    disable_notification: Optional[bool] = None
+    reply_to_message_id: Optional[int] = None
+    reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, ForceReply]] = None
+    parse_mode: Optional[str] = None
+    thumb: Optional[Union[io.IOBase, pathlib.Path, str]] = None
+    thumbnail: Optional[Union[io.IOBase, pathlib.Path, str]] = None
+    disable_content_type_detection: Optional[bool] = None
+    allow_sending_without_reply: Optional[bool] = None
+    caption_entities: Optional[Sequence[telegram.MessageEntity]] = None
+    protect_content: Optional[bool] = None
+    message_thread_id: Optional[int] = None
+    filename: Optional[str] = None
+
+    async def send(self, bot: ExtBot) -> None:
+        await bot.send_document(**self)
 
 
 def escape_markdown(text: str) -> str:

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -18,6 +19,7 @@ from .deepl import _translate, translator
 _logger = logging.getLogger(__name__)
 
 mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
+summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
 
 __all__ = [
     "_check_existing_transcript",
@@ -138,7 +140,7 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     if transcript.summary is not None:
         return transcript.summary
 
-    with open(Path(__file__).parent / "data" / "summarize.txt") as fp:
+    with open(summary_prompt_file_path) as fp:
         system_msg = fp.read()
 
     user_message = transcript.result
@@ -205,7 +207,7 @@ Topics:
         deepl_result = translator.translate_text(en_msg, target_lang=chat.language.code)
         msg = deepl_result.text
     # TODO: this might generate messages that are too long; handle that case
-    return BotMessage(update.effective_chat.id, msg)
+    return BotMessage(chat_id=update.effective_chat.id, text=msg)
 
 
 @session_context
@@ -229,12 +231,16 @@ def _get_summary_message(update: telegram.Update, context: DbSessionContext, sum
     else:
         msg = "\n".join(f"- {topic.text}" for topic in summary.topics)
 
-    return BotMessage(update.effective_chat.id, msg)
+    return BotMessage(chat_id=update.effective_chat.id, text=msg)
 
 
 def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retries: int = 2) -> dict:
+    openai_model = os.getenv("OPENAI_MODEL_ID")
+    if openai_model is None:
+        raise ValueError("OPENAI_MODEL_ID environment variable not set")
     summary_result = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo-0613",
+        model=openai_model,
+        temperature=0,
         messages=messages,
     )
     try:
