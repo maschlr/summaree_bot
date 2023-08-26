@@ -172,11 +172,22 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
 
 
 @session_context
-def _elaborate(update: telegram.Update, context: DbSessionContext, summary_id: int) -> BotMessage:
+def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> BotMessage:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
+    elif not {"transcript_id", "summary_id"} & kwargs.keys():
+        raise ValueError("Either transcript_id or summary_id must be given in kwargs.")
 
     session = context.db_session
+
+    transcript_id = kwargs.get("transcript_id")
+    if transcript_id is not None:
+        transcript = session.get(Transcript, transcript_id)
+        if transcript is None:
+            raise ValueError(f"Could not find transcript with id {transcript_id}")
+        return BotMessage(chat_id=update.effective_chat.id, text=transcript.result)
+
+    summary_id = kwargs.get("summary_id")
     summary = session.get(Summary, summary_id)
     if summary is None:
         raise ValueError(f"Could not find summary with id {summary_id}")

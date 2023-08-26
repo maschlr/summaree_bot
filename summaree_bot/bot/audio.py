@@ -52,17 +52,21 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         bot_msg = _get_summary_message(update, context, summary)
 
         # add button for elaboration
-        button = [
+        buttons = [
+            InlineKeyboardButton(
+                "📖 Full transcript",
+                callback_data={"fnc": "elaborate", "kwargs": {"transcript_id": summary.transcript_id}},
+            ),
             InlineKeyboardButton(
                 "🪄 Give me more", callback_data={"fnc": "elaborate", "kwargs": {"summary_id": summary.id}}
-            )
+            ),
         ]
-        bot_msg.reply_markup = InlineKeyboardMarkup([button])
+        bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
 
     return bot_msg
 
 
-async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, summary_id: int) -> None:
+async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
 
@@ -71,7 +75,7 @@ async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, summary_
     )
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
-    bot_msg = _elaborate(update, context, summary_id)
+    bot_msg = _elaborate(update, context, **kwargs)
 
     async with asyncio.TaskGroup() as tg:
         tg.create_task(wait_msg.delete())
