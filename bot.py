@@ -12,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-from summaree_bot.bot.admin import dataset
+from summaree_bot.bot.admin import dataset, stats
 from summaree_bot.bot.audio import transcribe_and_summarize
 from summaree_bot.bot.error import (
     bad_command_handler,
@@ -70,6 +70,7 @@ def main() -> None:
     if admin_chat_id is None:
         raise ValueError("ADMIN_CHAT_ID environment variable not set")
     application.add_handler(CommandHandler("dataset", dataset, filters.Chat(int(admin_chat_id))))
+    application.add_handler(CommandHandler("stats", stats, filters.Chat(int(admin_chat_id))))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))

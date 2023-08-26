@@ -96,8 +96,12 @@ def _transcribe_file(
             _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
             return transcript
 
-    if update.message is None or (update.message.voice is None and update.message.audio is None):
-        raise ValueError("The update must contain a voice or audio message.")
+    if (
+        update.message is None
+        or (update.message.voice is None and update.message.audio is None)
+        or update.effective_user is None
+    ):
+        raise ValueError("The update must contain a voice or audio message (and an effective_user).")
     voice_or_audio = cast(Union[telegram.Voice, telegram.Audio], (update.message.voice or update.message.audio))
 
     # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
@@ -126,6 +130,7 @@ def _transcribe_file(
         mime_type=voice_or_audio.mime_type,
         file_size=voice_or_audio.file_size,
         result=transcription_result["text"],
+        user_id=update.effective_user.id,
     )
     session.add(transcript)
     return transcript

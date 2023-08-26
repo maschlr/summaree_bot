@@ -114,6 +114,8 @@ class TelegramUser(Base):
     # use str of Model here to avoid linter warning
     chats: Mapped[set["TelegramChat"]] = relationship(secondary=chats_to_users_rel, back_populates="users")
 
+    transcripts: Mapped[List["Transcript"]] = relationship(back_populates="tg_user")
+
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"
@@ -165,6 +167,9 @@ class Transcript(Base):
     # one2one relationship Transcript (Parent) -> Summary (Child)
     # https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#one-to-one
     summary: Mapped["Summary"] = relationship(back_populates="transcript")
+
+    tg_user_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_user.id"))
+    tg_user: Mapped["TelegramUser"] = relationship(back_populates="transcripts")
 
 
 class Summary(Base):
