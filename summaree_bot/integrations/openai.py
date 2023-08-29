@@ -130,7 +130,7 @@ def _transcribe_file(
         mime_type=voice_or_audio.mime_type,
         file_size=voice_or_audio.file_size,
         result=transcription_result["text"],
-        user_id=update.effective_user.id,
+        tg_user_id=update.effective_user.id,
     )
     session.add(transcript)
     return transcript
