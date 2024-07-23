@@ -52,8 +52,22 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     if not languages:
         raise ValueError("No languages found in database.")
 
-    def msg(prefix: str, target_languages: Sequence[Language] = languages):
-        _msg = prefix + "\n".join(f"{lang.flag_emoji} {lang.ietf_tag} [{lang.name}]" for lang in target_languages)
+    example_suffix = "\n".join(
+        [
+            "Example for English type: `/lang en`",
+            "Para Español escribe `/lang es`",
+            "Для Русского напишите `/lang ru`",
+        ]
+    )
+
+    def msg(prefix: str, target_languages: Sequence[Language] = languages, suffix: str = "") -> str:
+        _msg = "".join(
+            [
+                prefix,
+                "\n".join([f"{lang.flag_emoji} {lang.ietf_tag} [{lang.name}]" for lang in target_languages]),
+                f"\n\n{suffix}" if len(suffix) > 0 else suffix,
+            ]
+        )
         return escape_markdown(_msg)
 
     parse_mode = ParseMode.MARKDOWN_V2
@@ -69,11 +83,16 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         if target_language := session.scalar(stmt):
             if chat.language != target_language:
                 chat.language = target_language
+                _msg = "".join(
+                    [
+                        "Target language successfully set to: ",
+                        f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]",
+                    ]
+                )
                 return BotMessage(
                     chat_id=chat.id,
                     text=msg(
-                        "Target language successfully set to: "
-                        f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]",
+                        _msg,
                         [],
                     ),
                     parse_mode=parse_mode,
@@ -87,14 +106,19 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                     "Other available languages are:\n\n"
                 )
 
-                return BotMessage(chat_id=chat.id, text=msg(answer, other_available_languages), parse_mode=parse_mode)
+                return BotMessage(
+                    chat_id=chat.id,
+                    text=msg(answer, other_available_languages, example_suffix),
+                    parse_mode=parse_mode,
+                )
 
         else:
-            prefix = (
-                "Unknown target language. Set your target language with `/lang language`.\n"
-                "Available laguages are:\n\n"
+            prefix = "Unknown target language.\n" "Available languages are:\n\n"
+            return BotMessage(
+                chat_id=chat.id,
+                text=msg(prefix, languages, example_suffix),
+                parse_mode=parse_mode,
             )
-            return BotMessage(chat_id=chat.id, text=msg(prefix), parse_mode=parse_mode)
 
     except IndexError:
         # Give the user 4 options, not the one they already have
@@ -122,9 +146,13 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         return BotMessage(
             chat_id=chat.id,
             text=msg(
-                "Your can either choose one of the languages below or "
-                "set your target language with `/lang` followed by the language short code from the following list. "
-                "Example for English type: `/lang en`. Available languages are: \n\n"
+                (
+                    "Your can either choose one of the languages below or "
+                    "set your target language with `/lang` followed by the "
+                    "language short code from the following list.\n\n"
+                ),
+                languages,
+                example_suffix,
             ),
             parse_mode=parse_mode,
             reply_markup=reply_markup,
@@ -165,7 +193,9 @@ def _start(update: Update, context: DbSessionContext) -> Union[Callable, BotMess
 
     user = update.effective_user
     bot_msg = BotMessage(
-        chat_id=update.message.chat_id, text=f"Hi {user.mention_html()}! " + MSG, parse_mode=ParseMode.HTML
+        chat_id=update.message.chat_id,
+        text=f"Hi {user.mention_html()}! " + MSG,
+        parse_mode=ParseMode.HTML,
     )
     return bot_msg
 
@@ -177,7 +207,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         result = _start(update, context)
-    except (ValueError, KeyError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError):
+    except (
+        ValueError,
+        KeyError,
+        binascii.Error,
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+    ):
         _logger.warning("Received invalid start handler argument(s) (%s)", context.args)
         bot_msg = BotMessage(
             chat_id=update.message.chat_id,
@@ -288,7 +324,8 @@ def _register(update: Update, context: DbSessionContext) -> Sequence[Union[BotMe
         elif tg_user.user.email and tg_user.user.email_token.active and not new_email:
             return [
                 BotMessage(
-                    chat_id=update.message.chat_id, text="Your email is already activated. Everything is fine. 😊"
+                    chat_id=update.message.chat_id,
+                    text="Your email is already activated. Everything is fine. 😊",
                 )
             ]
 
@@ -306,7 +343,11 @@ def _register(update: Update, context: DbSessionContext) -> Sequence[Union[BotMe
 
 @session_context
 def _send_token_email(update: Update, context: DbSessionContext) -> Sequence[Union[BotMessage, Callable]]:
-    message, chat, user = update.effective_message, update.effective_chat, update.effective_user
+    message, chat, user = (
+        update.effective_message,
+        update.effective_chat,
+        update.effective_user,
+    )
     if message is None or chat is None or user is None:
         raise ValueError("The update must contain a user and a message.")
 
@@ -331,12 +372,17 @@ def _send_token_email(update: Update, context: DbSessionContext) -> Sequence[Uni
 
     if success:
         operations.append(
-            BotMessage(chat_id=chat.id, text="📬 Email sent! Please check your inbox and activate your account.")
+            BotMessage(
+                chat_id=chat.id,
+                text="📬 Email sent! Please check your inbox and activate your account.",
+            )
         )
     else:
         operations.append(
             BotMessage(
-                chat_id=chat.id, text="😵‍💫 Something went wrong. Please try again later.", reply_markup=reply_markup
+                chat_id=chat.id,
+                text="😵‍💫 Something went wrong. Please try again later.",
+                reply_markup=reply_markup,
             )
         )
 
