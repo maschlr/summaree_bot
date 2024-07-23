@@ -170,7 +170,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         reply_markup = generate_subscription_keyboard(context)
         return BotMessage(
             chat_id=update.effective_chat.id,
-            text="⌛ You have no active subscription\. Would you like to buy one?",
+            text="⌛ You have no active subscription. Would you like to buy one?",
             reply_markup=reply_markup,
         )
 
@@ -183,9 +183,10 @@ async def premium_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 @session_context
 @ensure_chat
 def _payment_callback(update: Update, context: DbSessionContext, product_id: int) -> BotInvoice:
+    """Sends an invoice without shipping-payment."""
+
     if update.effective_chat is None or update.effective_user is None:
         raise ValueError("chat/user is None")
-    """Sends an invoice without shipping-payment."""
     session = context.db_session
     product = session.get(Product, product_id)
     if product is None:

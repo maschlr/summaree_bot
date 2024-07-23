@@ -307,12 +307,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if isinstance(result, BotMessage):
         await result.send(context.bot)
-        await help(update, context)
+        await help_handler(update, context)
     else:
         await result()
 
 
-async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show help message."""
+
     if update.message is None:
         raise ValueError("The update must contain a message.")
 
