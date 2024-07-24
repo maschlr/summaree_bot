@@ -253,6 +253,7 @@ class Subscription(Base):
 
 class PaymentProvider(enum.Enum):
     STRIPE = 0
+    TG_STARS = 1
 
 
 class InvoiceStatus(enum.Enum):
@@ -283,7 +284,7 @@ class Invoice(Base):
     subscription: Mapped["Subscription"] = relationship(back_populates="invoices")
 
     payment_provider: Mapped[PaymentProvider] = mapped_column(
-        sqlalchemy.Enum(PaymentProvider), default=PaymentProvider.STRIPE
+        sqlalchemy.Enum(PaymentProvider), default=PaymentProvider.TG_STARS
     )
     provider_payment_charge_id: Mapped[Optional[str]]
     telegram_payment_charge_id: Mapped[Optional[str]]
@@ -293,7 +294,6 @@ class Invoice(Base):
 
 class PremiumPeriod(enum.Enum):
     MONTH = 31
-    THREE_MONTHS = 92
     YEAR = 366
 
 

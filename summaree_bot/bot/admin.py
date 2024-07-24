@@ -1,4 +1,5 @@
 import bz2
+import datetime as dt
 import io
 import json
 import os
@@ -57,7 +58,7 @@ def _dataset(update: Update, context: DbSessionContext) -> BotDocument:
     compressed_buffer = io.BytesIO()
     compressed_buffer.write(bz2.compress(data_buffer.getvalue()))
 
-    now = datetime.utcnow()
+    now = datetime.now(dt.UTC)
     filename = f"dataset-{now.isoformat()[:19]}.jsonl.bz2"
     bot_msg = BotDocument(
         chat_id=update.message.chat_id,
@@ -81,11 +82,6 @@ def _stats(update: Update, context: DbSessionContext) -> BotMessage:
     session = context.db_session
     summaries = session.scalars(select(Summary)).all()
 
-    now = datetime.utcnow()
-    last_day = now - timedelta(hours=24)
-    last_week = now - timedelta(days=7)
-    last_month = now - timedelta(days=30)
-
     users = set(filter(lambda user: user is not None, (s.transcript.tg_user_id for s in summaries)))
     total_row_data = ["Total", len(users), len(summaries)]
 
@@ -94,7 +90,15 @@ def _stats(update: Update, context: DbSessionContext) -> BotMessage:
     table.align["Users"] = "r"
     table.align["Summaries"] = "r"
 
-    for row_label, row_timespan in [("24h", last_day), ("7 days", last_week), ("30 days", last_month)]:
+    now = datetime.now(dt.UTC)
+
+    label_to_datetime = {
+        "24h": now - timedelta(hours=24),
+        "7 days": now - timedelta(days=7),
+        "30 days": now - timedelta(days=30),
+    }
+
+    for row_label, row_timespan in label_to_datetime.items():
         row_summaries = list(filter(lambda s: s.created_at > row_timespan, summaries))
         row_users = set(filter(lambda user: user is not None, (s.transcript.tg_user_id for s in row_summaries)))
         table.add_row([row_label, len(row_users), len(row_summaries)])

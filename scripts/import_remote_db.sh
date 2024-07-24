@@ -19,7 +19,7 @@ dropdb $LOCAL_DB_NAME
 createdb $LOCAL_DB_NAME
 
 # Step 5: Import the dump into the local database
-gunzip -c /tmp/$DUMP_FILE | psql summaree
+gunzip -c /tmp/$DUMP_FILE | psql $LOCAL_DB_NAME
 
 # Step 6: Clean up - remove the downloaded dump file
 rm /tmp/$DUMP_FILE
