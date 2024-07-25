@@ -125,5 +125,5 @@ class BotDocument(BotResponse):
 
 def escape_markdown(text: str) -> str:
     """Helper function to escape telegram markup symbols"""
-    escape_chars = r"\*_\[]().!#+{}~>-"
+    escape_chars = r"\*_\[]()!#+{}~>-"
     return r"".join(rf"\{c}" if c in escape_chars else c for c in text)

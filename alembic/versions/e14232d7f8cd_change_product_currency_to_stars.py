@@ -22,15 +22,19 @@ def upgrade() -> None:
             description = product_update.description,
             price = product_update.price
         FROM (VALUES
-            (1, 'Premium Subscription for 1 month (⭐)', 50, 'XTR'),
-            (3, 'Premium Subscription for 1 year (⭐)', 500, 'XTR')
+            (1, 'Premium subscription for 1 month', 100, 'XTR'),
+            (2, 'Premium subscription for 3 months', 250, 'XTR'),
+            (3, 'Premium subscription for 1 year', 500, 'XTR')
         ) AS product_update(id, description, price, currency)
         WHERE product.id = product_update.id;
     """
     )
 
-    op.execute("DELETE FROM product WHERE premium_period = 'THREE_MONTHS'")
-    op.execute("UPDATE product SET id = 2 WHERE id = 3")
+    # Add new value to enum column
+    op.execute("ALTER TYPE paymentprovider ADD VALUE 'TG_STARS'")
+
+    # Update the premiumperiod enum type
+    op.execute("ALTER TYPE premiumperiod RENAME VALUE 'THREE_MONTHS' TO 'QUARTER'")
 
 
 def downgrade() -> None:

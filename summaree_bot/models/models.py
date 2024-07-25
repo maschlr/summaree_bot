@@ -52,8 +52,6 @@ class User(Base):
     referrals: Mapped[List["User"]] = relationship("User", back_populates="referrer")
     referrer: Mapped["User"] = relationship("User", back_populates="referrals", remote_side=[id])
 
-    invoices: Mapped["Invoice"] = relationship("Invoice", back_populates="user")
-
 
 class EmailToken(Base):
     __tablename__ = "token"
@@ -101,7 +99,7 @@ class Language(Base):
 
 class TelegramUser(Base):
     __tablename__ = "telegram_user"
-    id: Mapped[int] = mapped_column("id", BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column("id", BigInteger, primary_key=True)  # same as TG user ID
     is_bot: Mapped[bool] = mapped_column(default=False)
     first_name: Mapped[str]
     last_name: Mapped[Optional[str]]
@@ -115,6 +113,8 @@ class TelegramUser(Base):
     chats: Mapped[set["TelegramChat"]] = relationship(secondary=chats_to_users_rel, back_populates="users")
 
     transcripts: Mapped[List["Transcript"]] = relationship(back_populates="tg_user")
+
+    invoices: Mapped[List["Invoice"]] = relationship(back_populates="tg_user")
 
 
 class TelegramChat(Base):
@@ -269,8 +269,8 @@ class Invoice(Base):
     status: Mapped[InvoiceStatus] = mapped_column(sqlalchemy.Enum(InvoiceStatus), default=InvoiceStatus.draft)
     title: Mapped[str] = mapped_column(default="summar.ee bot Subscription")
     description: Mapped[str] = mapped_column(default="Premium Features: Unlimited summaries, unlimited translations")
-    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
-    user: Mapped["User"] = relationship(back_populates="invoices")
+    tg_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_user.id"))
+    tg_user: Mapped["TelegramUser"] = relationship(back_populates="invoices")
     # TODO map with user email, send token and activate
     email: Mapped[Optional[str]]
 
@@ -294,6 +294,7 @@ class Invoice(Base):
 
 class PremiumPeriod(enum.Enum):
     MONTH = 31
+    QUARTER = 92
     YEAR = 366
 
 

@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import os
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..models import (
+    EmailToken,
     Invoice,
     InvoiceStatus,
     PremiumPeriod,
@@ -65,10 +67,10 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
         n_referrals = len(tg_user.user.referrals)
         return BotMessage(
             chat_id=chat_id,
-            text=(
-                f"👥 Your referral token is `{tg_user.user.referral_token}`\.\n\n"
-                f"💫 You have referred {n_referrals} users\. "
-                f"In total, you have received {n_referrals*7} days of free premium\! 💸"
+            text=escape_markdown(
+                f"👥 Your referral token is `{tg_user.user.referral_token}`.\n\n"
+                f"💫 You have referred {n_referrals} users. "
+                f"In total, you have received {n_referrals*7} days of free premium! 💸"
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
@@ -104,8 +106,8 @@ def generate_subscription_keyboard(
     if subscription_id is not None:
         callback_data["args"] = [subscription_id]
 
-    # fetch all € products
-    stmt = select(Product).where(Product.premium_period.in_(list(PremiumPeriod))).where(Product.currency == "EUR")
+    # fetch all ⭐ products
+    stmt = select(Product).where(Product.premium_period.in_(list(PremiumPeriod))).where(Product.currency == "XTR")
     products = context.db_session.execute(stmt).scalars().all()
     if len(products) < len(PremiumPeriod):
         raise ValueError(
@@ -115,8 +117,9 @@ def generate_subscription_keyboard(
 
     # create keyboard
     period_to_keyboard_button_text = {
-        PremiumPeriod.MONTH: f"👶 1 month: {periods_to_products[PremiumPeriod.MONTH].price}⭐",
-        PremiumPeriod.YEAR: f"💯 1 year: {periods_to_products[PremiumPeriod.THREE_MONTHS].price}⭐",
+        PremiumPeriod.MONTH: f"🤖 1 month: ${periods_to_products[PremiumPeriod.MONTH].price}",
+        PremiumPeriod.QUARTER: f"💯 3 months: ${periods_to_products[PremiumPeriod.QUARTER].price}",
+        PremiumPeriod.YEAR: f"🔥 1 year: ${periods_to_products[PremiumPeriod.YEAR].price}",
     }
     keyboard_buttons = [
         [
@@ -126,9 +129,7 @@ def generate_subscription_keyboard(
         ]
         for period, text in period_to_keyboard_button_text.items()
     ]
-    keyboard_buttons.append(
-        [InlineKeyboardButton("🙅‍♀️🙅‍♂️ No, thanks", callback_data={"fnc": "remove_inline_keyboard"})]
-    )
+    keyboard_buttons.append([InlineKeyboardButton("😌 No, thanks", callback_data={"fnc": "remove_inline_keyboard"})])
     return InlineKeyboardMarkup(keyboard_buttons)
 
 
@@ -165,8 +166,13 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         reply_markup = generate_subscription_keyboard(context, subscriptions[0].id)
         return BotMessage(chat_id=update.effective_chat.id, text=subscription_msg, reply_markup=reply_markup)
     # case 3: chat has no active subscription
+    #  -> check if user is in database, if not -> create
     #  -> ask user if subscription should be bought
     else:
+        tg_user = session.get(TelegramUser, update.effective_user.id)
+        if not tg_user.user:
+            user = User(telegram_user=tg_user, email_token=EmailToken())
+            session.add(user)
         reply_markup = generate_subscription_keyboard(context)
         return BotMessage(
             chat_id=update.effective_chat.id,
@@ -191,21 +197,19 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     if product is None:
         raise ValueError(f"product {product_id} not found in database")
 
-    title = "summar.ee bot Subscription"
-    description = "Premium Features: Unlimited summaries, unlimited translations"
+    title = "summar.ee premium subscription"
+    description = "\n".join(["Premium features:", "- Unlimited summaries", "- unlimited translations"])
     # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
     currency = "XTR"
     # price in dollars
     price = product.price
     days = product.premium_period.value
-    # price * 100 so as to include 2 decimal points
     prices = [LabeledPrice(f"Premium Subscription {days} days", price)]
 
     chat_id = update.effective_chat.id
     tg_user = session.get(TelegramUser, update.effective_user.id)
-    if tg_user is None or tg_user.user is None:
-        raise ValueError(f"tg_user {update.effective_user.id} not found in database")
-    invoice = Invoice(user_id=tg_user.user.id, chat_id=chat_id, product_id=product.id)
+
+    invoice = Invoice(tg_user_id=tg_user.id, chat_id=chat_id, product_id=product.id)
     session.add(invoice)
 
     payload = url.encode([PAYMENT_PAYLOAD_TOKEN, invoice.id])
@@ -217,10 +221,10 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         title=title,
         description=description,
         payload=str(payload, "ascii"),
-        provider_token="",
+        provider_token=STRIPE_TOKEN,
         currency=currency,
         prices=prices,
-        need_email=True,
+        need_email=False,
         protect_content=True,
     )
 
@@ -265,6 +269,7 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(
             ok=False, error_message="😕 Something went wrong... Invoice has been cancelled. Support has been contacted."
         )
+        # TODO: write a message into admin channel
         raise
 
     await query.answer(ok=is_ok)
@@ -302,7 +307,7 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     invoice.status = InvoiceStatus.paid
 
     # create subscription
-    start_date = datetime.utcnow()
+    start_date = datetime.now(dt.UTC)
     end_date = start_date + timedelta(days=invoice.product.premium_period.value)
     subscription = Subscription(
         user=invoice.user,
