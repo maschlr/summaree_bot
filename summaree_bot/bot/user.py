@@ -1,6 +1,7 @@
 import asyncio
 import binascii
 import json
+from itertools import batched
 from typing import Callable, Optional, Sequence, Union, cast
 
 from sqlalchemy import select
@@ -56,7 +57,8 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         [
             "Example for English type: `/lang en`",
             "Para Español escribe `/lang es`",
-            "Для Русского напишите `/lang ru`",
+            "Для Русского напишите `/lang ru`\n",
+            "Or choose press a button below:",
         ]
     )
 
@@ -85,7 +87,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                 chat.language = target_language
                 _msg = "".join(
                     [
-                        "Target language successfully set to: ",
+                        "Language successfully set to: ",
                         f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]",
                     ]
                 )
@@ -113,7 +115,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                 )
 
         else:
-            prefix = "Unknown target language.\n" "Available languages are:\n\n"
+            prefix = "Unknown language.\n" "Available languages are:\n\n"
             return BotMessage(
                 chat_id=chat.id,
                 text=msg(prefix, languages, example_suffix),
@@ -121,32 +123,17 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             )
 
     except IndexError:
+        # Give the user an inline keyboard to choose from
+        # make the inline keyboard pageable
+        # first page has only "Next >>" button to go to the next page, last page only "<< Previous" button
         # Give the user 4 options, not the one they already have
-        common_languages_ietf_tag = ["en", "ru", "zh", "es", "fr"]
-        if chat.language.ietf_tag in common_languages_ietf_tag:
-            common_languages_ietf_tag.remove(chat.language.ietf_tag)
-            ietf_language_code_set = common_languages_ietf_tag
-        else:
-            ietf_language_code_set = common_languages_ietf_tag[:4]
-        common_languages_stmt = select(Language).where(Language.ietf_tag.in_(ietf_language_code_set))
-        common_languages = session.scalars(common_languages_stmt).all()
-        buttons = []
-        callback_data = {"fnc": "set_lang"}
-        for idx in range(0, 4, 2):
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        f"{lang.flag_emoji} {lang.name}",
-                        callback_data=dict(**callback_data, kwargs={"ietf_tag": lang.ietf_tag}),
-                    )
-                    for lang in common_languages[idx : idx + 2]
-                ]
-            )
-        reply_markup = InlineKeyboardMarkup(buttons)
+        reply_markup = _get_lang_inline_keyboard(update, context)
         return BotMessage(
             chat_id=chat.id,
             text=msg(
                 (
+                    "Current language is: "
+                    f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n\n"
                     "Your can either choose one of the languages below or "
                     "set your target language with `/lang` followed by the "
                     "language short code from the following list.\n\n"
@@ -159,17 +146,98 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         )
 
 
-async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None) -> None:
-    if context.chat_data is None:
-        context.chat_data = {}
-    context.chat_data["ietf_tag"] = ietf_tag
-    await set_lang(update, context)
+@session_context
+def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: int = 1) -> InlineKeyboardMarkup:
+    """
+    Give the user an inline keyboard to choose from
+    make the inline keyboard pageable
+    first page has only "Next >>" button to go to the next page, last page only "<< Previous" button
+    Give the user 4 options, not the one they already have
+    """
+    session = context.db_session
+    if session is None:
+        raise ValueError("The context must contain a database session.")
+
+    # Possible future performance improvement: cache the languages
+    stmt = select(Language)
+    languages = session.scalars(stmt).all()
+    chat = session.get(TelegramChat, update.effective_chat.id)
+
+    # define rows and columns for the keyboard
+    rows = 4
+    columns = 3
+
+    common_languages_ietf_tag = ["en", "ru", "pt", "zh", "es", "fr"]
+    all_languages_without_common = [lang for lang in languages if lang.ietf_tag not in common_languages_ietf_tag]
+    all_languages_ietf_tag = common_languages_ietf_tag + [lang.ietf_tag for lang in all_languages_without_common]
+
+    # remove the language that is already configured
+    all_languages_ietf_tag.remove(chat.language.ietf_tag)
+
+    # sorted languages with most common first
+    ietf_tag_to_language = {lang.ietf_tag: lang for lang in languages}
+    sorted_languages = [ietf_tag_to_language[ietf_tag] for ietf_tag in all_languages_ietf_tag]
+
+    callback_data = {"fnc": "set_lang"}
+    language_buttons = [
+        InlineKeyboardButton(
+            f"{lang.flag_emoji} {lang.name}",
+            callback_data=dict(**callback_data, kwargs={"ietf_tag": lang.ietf_tag}),
+        )
+        for lang in sorted_languages
+    ]
+
+    n_lang = len(all_languages_ietf_tag)
+    items_per_page = rows * columns
+    n_pages = int((n_lang - 2) / (items_per_page - 2)) + 1
+
+    # indexing of pages starts with 1
+    if page == 1:
+        buttons_on_page = language_buttons[: items_per_page - 1]
+        # only next button at last position of last row
+        buttons_on_page.append(InlineKeyboardButton("Next >>", callback_data=dict(**callback_data, kwargs={"page": 2})))
+    elif page == n_pages:
+        # last page
+        # only previous button at first position of first row
+        # calculate the number of pages
+        items_total = n_lang + 2 + 2 * (n_pages - 2)
+
+        # slots on n-1 pages
+        slots = (n_pages - 1) * items_per_page
+        items_on_last_page = items_total - slots
+
+        buttons_on_page = language_buttons[-items_on_last_page + 1 :]
+        buttons_on_page.insert(
+            0, InlineKeyboardButton("<< Previous", callback_data=dict(**callback_data, kwargs={"page": page - 1}))
+        )
+    else:
+        # middle page
+        _start = items_per_page - 1 + (page - 2) * (items_per_page - 2)
+        buttons_on_page = language_buttons[_start : _start + items_per_page - 2]
+        buttons_on_page.insert(
+            0, InlineKeyboardButton("<< Previous", callback_data=dict(**callback_data, kwargs={"page": page - 1}))
+        )
+        buttons_on_page.append(
+            InlineKeyboardButton("Next >>", callback_data=dict(**callback_data, kwargs={"page": page + 1}))
+        )
+
+    keyboard = InlineKeyboardMarkup(list(batched(buttons_on_page, columns)))
+    return keyboard
+
+
+async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None, page=None) -> None:
+    if ietf_tag is not None:
+        context.args = [ietf_tag]
+        await set_lang(update, context)
+    elif page is not None:
+        keyboard = _get_lang_inline_keyboard(update, context, page=page)
+        await update.callback_query.edit_message_reply_markup(reply_markup=keyboard)
+    else:
+        raise ValueError("Invalid callback data.")
 
 
 async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Set the target language when /lang {language_code} is issued."""
-    if context.chat_data is not None and (ietf_tag := context.chat_data.get("ietf_tag")):
-        context.args = [ietf_tag]
     bot_msg = _set_lang(update, context)
     await bot_msg.send(context.bot)
 
@@ -248,8 +316,10 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for operation in _register(update, context):
             if isinstance(operation, BotMessage):
                 tg.create_task(operation.send(context.bot))
-            else:
+            elif isinstance(operation, Callable):
                 tg.create_task(operation())
+            else:
+                raise ValueError(f"Invalid operation: {operation}")
 
 
 @session_context
