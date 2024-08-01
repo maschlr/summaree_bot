@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Union, cast
 
-import openai
 import telegram
+from openai import OpenAI
 from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -21,6 +21,7 @@ _logger = logging.getLogger(__name__)
 
 mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
+client = OpenAI()
 
 __all__ = [
     "_check_existing_transcript",
@@ -107,11 +108,13 @@ def _transcribe_file(
 
     # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
     if file_path.suffix[1:] not in {
+        "flac",
         "mp3",
         "mp4",
         "mpeg",
         "mpga",
         "m4a",
+        "ogg",
         "wav",
         "webm",
     }:
@@ -120,8 +123,8 @@ def _transcribe_file(
         supported_file_path = file_path
 
     # send the .mp3 file to openai whisper, create a db entry and return it
-    with open(supported_file_path, "rb") as mp3_fp:
-        transcription_result = openai.Audio.transcribe("whisper-1", mp3_fp)
+    with open(supported_file_path, "rb") as fp:
+        transcription_result = client.audio.transcriptions.create(model="whisper-1", file=fp, response_format="text")
 
     transcript = Transcript(
         file_unique_id=voice_or_audio.file_unique_id,
@@ -130,7 +133,7 @@ def _transcribe_file(
         duration=voice_or_audio.duration,
         mime_type=voice_or_audio.mime_type,
         file_size=voice_or_audio.file_size,
-        result=transcription_result["text"],
+        result=transcription_result,
         tg_user_id=update.effective_user.id,
     )
     session.add(transcript)
@@ -226,13 +229,10 @@ Topics:
         },
     ]
 
-    elaboration_result = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo-0613",
-        messages=messages,
-    )
-    [choice] = elaboration_result["choices"]
+    elaboration_result = client.chat.completions.create(model="gpt-3.5-turbo-0613", messages=messages, temperature=0)
+    [choice] = elaboration_result.choices
     chat = session.get(TelegramChat, update.effective_chat.id)
-    en_msg = choice["message"]["content"]
+    en_msg = choice.message.content
     if chat is None or chat.language.ietf_tag == "en":
         msg = en_msg
     else:
@@ -270,24 +270,24 @@ def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retrie
     openai_model = os.getenv("OPENAI_MODEL_ID")
     if openai_model is None:
         raise ValueError("OPENAI_MODEL_ID environment variable not set")
-    summary_result = openai.ChatCompletion.create(
+    summary_result = client.chat.completions.create(
         model=openai_model,
         temperature=0,
         messages=messages,
     )
     try:
-        [choice] = summary_result["choices"]
-        data = json.loads(choice["message"]["content"])
+        [choice] = summary_result.choices
+        data = json.loads(choice.message.content)
     except IndexError:
         _logger.error(f"OpenAI returned more than one or no choices: {summary_result}")
         raise
     except json.JSONDecodeError:
-        _logger.warning(f'OpenAI returned invalid JSON: {choice["message"]["content"]}')
+        _logger.warning(f"OpenAI returned invalid JSON: {choice.message.content}")
         if n_retry == max_retries:
             raise
         else:
             _logger.info(f"Retrying {n_retry}/{max_retries}")
-            messages.append(choice["message"])
+            messages.append(choice.message)
             messages.append(
                 {
                     "role": "user",
