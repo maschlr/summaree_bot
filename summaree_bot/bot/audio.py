@@ -16,8 +16,10 @@ from ..integrations import (
     _summarize,
     _transcribe_file,
 )
+from ..integrations.deepl import _translate_text
 from ..logging import getLogger
-from ..models.session import DbSessionContext, Session
+from ..models import TelegramChat, Transcript
+from ..models.session import DbSessionContext, Session, session_context
 from . import BotMessage
 
 # Enable logging
@@ -55,10 +57,17 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         buttons = [
             InlineKeyboardButton(
                 "📖 Full transcript",
-                callback_data={"fnc": "elaborate", "kwargs": {"transcript_id": summary.transcript_id}},
+                callback_data={
+                    "fnc": "elaborate",
+                    "kwargs": {"transcript_id": summary.transcript_id},
+                },
             ),
             InlineKeyboardButton(
-                "🪄 Give me more", callback_data={"fnc": "elaborate", "kwargs": {"summary_id": summary.id}}
+                "🪄 Give me more",
+                callback_data={
+                    "fnc": "elaborate",
+                    "kwargs": {"summary_id": summary.id},
+                },
             ),
         ]
         bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
@@ -71,7 +80,8 @@ async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs
         raise ValueError("The update must contain a chat.")
 
     wait_msg = await context.bot.send_message(
-        update.effective_chat.id, "📥 Received your request and processing it....⏳\n Please wait a moment. ☕"
+        update.effective_chat.id,
+        "📥 Received your request and processing it....⏳\n Please wait a moment. ☕",
     )
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
@@ -107,9 +117,58 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             )
         )
         bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
+        tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
 
     start_message = start_msg_task.result()
     bot_response_msg = bot_response_msg_task.result()
     async with asyncio.TaskGroup() as tg:
         tg.create_task(start_message.delete())
         tg.create_task(bot_response_msg.send(context.bot))
+
+
+@session_context
+def _translate_transcript(update: Update, context: DbSessionContext, transcript_id: int) -> BotMessage:
+    """Find transscript in the database and return a BotMessage with the translation"""
+    session = context.db_session
+
+    transcript = session.get(Transcript, transcript_id)
+    if transcript is None:
+        raise ValueError(f"Transcript with ID {transcript_id} not found.")
+
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    if chat is None:
+        raise ValueError(f"Chat with ID {update.effective_chat.id} not found.")
+    target_language = chat.language
+
+    # TODO: create DB model for text translated transcripts to avoid calling the API
+    # Before: see if this is indeed called repeatedly
+    translation = _translate_text(transcript.result, target_language)
+
+    bot_msg = BotMessage(
+        chat_id=update.effective_chat.id,
+        text=translation,
+    )
+
+    return bot_msg
+
+
+async def translate_transcript(update: Update, context: ContextTypes.DEFAULT_TYPE, transcript_id: int) -> None:
+    """Callback function to translate a transcript when button is clicked"""
+    if update.effective_chat is None:
+        raise ValueError("The update must contain a chat.")
+
+    async with asyncio.TaskGroup() as tg:
+        process_msg_task = tg.create_task(
+            update.effective_message.reply_text(
+                "📝 Received your request.\n☕ Translating your transcript...\n⏳ Please wait a moment.",
+            )
+        )
+        tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
+
+    process_msg = process_msg_task.result()
+    bot_msg = _translate_transcript(update, context, transcript_id=transcript_id)
+
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(update.effective_message.edit_reply_markup(reply_markup=None))
+        tg.create_task(process_msg.delete())
+        tg.create_task(bot_msg.send(context.bot))

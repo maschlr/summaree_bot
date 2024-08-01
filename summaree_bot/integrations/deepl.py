@@ -6,10 +6,10 @@ import deepl
 import telegram
 from sqlalchemy import select
 
-from ..models import Language, Topic, Translation
+from ..models import Language, Topic, TopicTranslation
 from ..models.session import DbSessionContext, Session, session_context
 
-__all__ = ["_translate"]
+__all__ = ["_translate_topic", "_translate_text"]
 
 deepl_token: Optional[str] = os.getenv("DEEPL_TOKEN")
 translator = deepl.Translator(deepl_token)
@@ -59,11 +59,15 @@ available_target_languages = DeepLLanguages(
 
 
 @session_context
-def _translate(
+def _translate_topic(
     update: telegram.Update, context: DbSessionContext, target_language: Language, topic: Topic
-) -> Translation:
+) -> TopicTranslation:
     session = context.db_session
-    stmt = select(Translation).where(Translation.target_lang == target_language).where(Translation.topic == topic)
+    stmt = (
+        select(TopicTranslation)
+        .where(TopicTranslation.target_lang == target_language)
+        .where(TopicTranslation.topic == topic)
+    )
 
     if translation := session.scalars(stmt).one_or_none():
         return translation
@@ -71,7 +75,7 @@ def _translate(
     source_text = topic.text
     deepl_result = translator.translate_text(source_text, target_lang=target_language.code)
 
-    translation = Translation(
+    translation = TopicTranslation(
         topic=topic,
         target_lang=target_language,
         target_text=deepl_result.text,
@@ -79,6 +83,11 @@ def _translate(
     session.add(translation)
 
     return translation
+
+
+def _translate_text(text: str, target_language: Language) -> str:
+    deepl_result = translator.translate_text(text, target_lang=target_language.code)
+    return deepl_result.text
 
 
 def check_database_languages():

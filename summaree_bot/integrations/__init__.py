@@ -11,11 +11,8 @@ from .openai import (
 
 __all__ = [
     "check_database_languages",
-    "translate",
     "_summarize",
     "_elaborate",
-    "transcribe_audio",
-    "transcribe_voice",
     "Email",
     "TokenEmail",
     "is_valid_email",

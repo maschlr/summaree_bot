@@ -10,11 +10,12 @@ from typing import Optional, Union, cast
 import openai
 import telegram
 from sqlalchemy import select
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..bot import BotMessage, ensure_chat
 from ..models import Language, Summary, TelegramChat, Topic, Transcript
 from ..models.session import DbSessionContext, session_context
-from .deepl import _translate, translator
+from .deepl import _translate_topic, translator
 
 _logger = logging.getLogger(__name__)
 
@@ -185,7 +186,22 @@ def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> 
         transcript = session.get(Transcript, transcript_id)
         if transcript is None:
             raise ValueError(f"Could not find transcript with id {transcript_id}")
-        return BotMessage(chat_id=update.effective_chat.id, text=transcript.result)
+        # if transcript language is not chat language, show a button to translate it
+        chat = session.get(TelegramChat, update.effective_chat.id)
+        if chat is None:
+            raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
+        if chat.language == transcript.input_language:
+            return BotMessage(chat_id=update.effective_chat.id, text=transcript.result)
+
+        buttons = [
+            InlineKeyboardButton(
+                f"{chat.language.flag_emoji} Translate",
+                callback_data={"fnc": "translate_transcript", "kwargs": {"transcript_id": transcript_id}},
+            )
+        ]
+        return BotMessage(
+            chat_id=update.effective_chat.id, text=transcript.result, reply_markup=InlineKeyboardMarkup([buttons])
+        )
 
     summary_id = kwargs.get("summary_id")
     summary = session.get(Summary, summary_id)
@@ -240,7 +256,7 @@ def _get_summary_message(update: telegram.Update, context: DbSessionContext, sum
     en_lang = Language.get_default_language(session)
     if chat.language != en_lang:
         translations = [
-            _translate(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
+            _translate_topic(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
         ]
         session.add_all(translations)
         msg = "\n".join(f"- {translation.target_text}" for translation in translations)

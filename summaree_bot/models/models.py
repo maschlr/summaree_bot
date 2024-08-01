@@ -76,7 +76,7 @@ class Language(Base):
     code: Mapped[str]
 
     transcripts: Mapped[List["Transcript"]] = relationship(back_populates="input_language")
-    translations: Mapped[List["Translation"]] = relationship(back_populates="target_lang")
+    translations: Mapped[List["TopicTranslation"]] = relationship(back_populates="target_lang")
     chats: Mapped[List["TelegramChat"]] = relationship(back_populates="language")
 
     @classmethod
@@ -194,10 +194,10 @@ class Topic(Base):
     summary: Mapped["Summary"] = relationship(back_populates="topics")
 
     # one topic can be translated to multiple languages
-    translations: Mapped[List["Translation"]] = relationship(back_populates="topic")
+    translations: Mapped[List["TopicTranslation"]] = relationship(back_populates="topic")
 
 
-class Translation(Base):
+class TopicTranslation(Base):
     __tablename__ = "translation"
     # translation always has topic as input
     id: Mapped[int] = mapped_column(primary_key=True)

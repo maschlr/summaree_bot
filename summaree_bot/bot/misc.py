@@ -3,7 +3,7 @@ from typing import Any, Callable, cast
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .audio import elaborate
+from .audio import elaborate, translate_transcript
 from .premium import payment_callback
 from .user import edit_email, send_token_email, set_lang_callback
 
@@ -38,6 +38,7 @@ async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "buy_or_extend_subscription": payment_callback,
         "set_lang": set_lang_callback,
         "elaborate": elaborate,
+        "translate_transcript": translate_transcript,
     }
     fnc: Callable = callback_fnc_mapping[fnc_key]
     args: list = callback_data.get("args", [])

@@ -14,8 +14,8 @@ from .models import (
     TelegramChat,
     TelegramUser,
     Topic,
+    TopicTranslation,
     Transcript,
-    Translation,
     User,
 )
 
@@ -30,7 +30,7 @@ __all__ = [
     "TelegramUser",
     "Topic",
     "Transcript",
-    "Translation",
+    "TopicTranslation",
     "Subscription",
     "SubscriptionStatus",
     "SubscriptionType",
