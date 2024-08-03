@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import os
 from datetime import datetime, timedelta
+from functools import wraps
 from typing import Mapping, Optional, Sequence, Union, cast
 
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from ..models.session import DbSessionContext
 from ..utils import url
 from . import BotInvoice, BotMessage
 from .db import ensure_chat, session_context
+from .exceptions import NoActivePremium
 from .helpers import escape_markdown
 
 __all__ = [
@@ -327,3 +329,21 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _successful_payment_callback(update, context)
     await bot_msg.send(context.bot)
+
+
+def needs_premium(fnc):
+    @wraps(fnc)
+    def wrapper(*args, **kwargs):
+        update = kwargs.get("update", args[0])
+        context = kwargs.get("context", args[1])
+        session = context.db_session
+
+        # check if chat has active subscription
+        subscriptions = TelegramChat.get_subscription_status(session, update.effective_chat.id)
+        if not any(
+            subscription.status in {SubscriptionStatus.active, SubscriptionStatus.extended}
+            for subscription in subscriptions
+        ):
+            raise NoActivePremium("Chat has no active subscription.")
+        else:
+            return fnc(*args, **kwargs)

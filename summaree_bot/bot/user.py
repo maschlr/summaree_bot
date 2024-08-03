@@ -30,7 +30,9 @@ from ..models.session import DbSessionContext
 from ..utils import url
 from . import BotMessage
 from .db import ensure_chat, session_context
+from .exceptions import NoActivePremium
 from .helpers import escape_markdown
+from .premium import generate_subscription_keyboard, needs_premium
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -53,6 +55,7 @@ MSG = (
 
 @session_context
 @ensure_chat
+@needs_premium
 def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     """Set the target language when /lang {language_code} is issued."""
     if update.effective_chat is None:
@@ -222,17 +225,28 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
 
         buttons_on_page = language_buttons[-items_on_last_page + 1 :]
         buttons_on_page.insert(
-            0, InlineKeyboardButton("<< Previous", callback_data=dict(**callback_data, kwargs={"page": page - 1}))
+            0,
+            InlineKeyboardButton(
+                "<< Previous",
+                callback_data=dict(**callback_data, kwargs={"page": page - 1}),
+            ),
         )
     else:
         # middle page
         _start = items_per_page - 1 + (page - 2) * (items_per_page - 2)
         buttons_on_page = language_buttons[_start : _start + items_per_page - 2]
         buttons_on_page.insert(
-            0, InlineKeyboardButton("<< Previous", callback_data=dict(**callback_data, kwargs={"page": page - 1}))
+            0,
+            InlineKeyboardButton(
+                "<< Previous",
+                callback_data=dict(**callback_data, kwargs={"page": page - 1}),
+            ),
         )
         buttons_on_page.append(
-            InlineKeyboardButton("Next >>", callback_data=dict(**callback_data, kwargs={"page": page + 1}))
+            InlineKeyboardButton(
+                "Next >>",
+                callback_data=dict(**callback_data, kwargs={"page": page + 1}),
+            )
         )
 
     keyboard = InlineKeyboardMarkup(list(batched(buttons_on_page, columns)))
@@ -240,6 +254,7 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
 
 
 async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None, page=None) -> None:
+    """Inline keyboard callback"""
     if ietf_tag is not None:
         context.args = [ietf_tag]
         await set_lang(update, context)
@@ -252,7 +267,22 @@ async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Set the target language when /lang {language_code} is issued."""
-    bot_msg = _set_lang(update, context)
+    try:
+        bot_msg = _set_lang(update, context)
+    except NoActivePremium:
+        _msg = "\n".join(
+            [
+                "Setting an output language different from english is a premium feature.",
+                "Would you like to buy premium?",
+            ]
+        )
+        # TODO: either move this part to the _set_lang module
+        # or make the generate_subscription_keyboard a function that doesn't do a db call
+        BotMessage(
+            _msg,
+            chat_id=update.effective_chat.id,
+            reply_markup=generate_subscription_keyboard(context),
+        )
     await bot_msg.send(context.bot)
 
 

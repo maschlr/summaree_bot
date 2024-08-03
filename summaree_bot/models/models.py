@@ -135,6 +135,11 @@ class TelegramChat(Base):
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
     invoices: Mapped["Invoice"] = relationship("Invoice", back_populates="chat")
 
+    @staticmethod
+    def get_subscription_status(session: Session, chat_id: int) -> Optional["SubscriptionStatus"]:
+        stmt = select(Subscription.status).where(Subscription.chat_id == chat_id)
+        return session.execute(stmt).scalars()
+
 
 class BotMessage(Base):
     __tablename__ = "bot_message"
