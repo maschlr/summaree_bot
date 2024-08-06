@@ -4,9 +4,9 @@ from .openai import (
     _check_existing_transcript,
     _elaborate,
     _extract_file_name,
-    _get_summary_message,
     _summarize,
     _transcribe_file,
+    _translate_topic,
 )
 
 __all__ = [
@@ -19,5 +19,6 @@ __all__ = [
     "_check_existing_transcript",
     "_extract_file_name",
     "_transcribe_file",
+    "_translate_topic",
     "_get_summary_message",
 ]

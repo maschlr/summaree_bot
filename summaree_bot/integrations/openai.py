@@ -15,7 +15,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from ..bot import BotMessage, ensure_chat
 from ..models import Language, Summary, TelegramChat, Topic, Transcript
 from ..models.session import DbSessionContext, session_context
-from .deepl import _translate_topic, translator
+from .deepl import translator
 
 _logger = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ __all__ = [
     "_extract_file_name",
     "_transcribe_file",
     "_summarize",
-    "_get_summary_message",
 ]
 
 
@@ -240,30 +239,6 @@ Topics:
         deepl_result = translator.translate_text(en_msg, target_lang=chat.language.code)
         msg = deepl_result.text
     # TODO: this might generate messages that are too long; handle that case
-    return BotMessage(chat_id=update.effective_chat.id, text=msg)
-
-
-@session_context
-def _get_summary_message(update: telegram.Update, context: DbSessionContext, summary: Summary) -> BotMessage:
-    if update.effective_chat is None:
-        raise ValueError("The update must contain a chat.")
-
-    session = context.db_session
-    session.add(summary)
-    chat = session.get(TelegramChat, update.effective_chat.id)
-    if chat is None:
-        raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
-
-    en_lang = Language.get_default_language(session)
-    if chat.language != en_lang:
-        translations = [
-            _translate_topic(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
-        ]
-        session.add_all(translations)
-        msg = "\n".join(f"- {translation.target_text}" for translation in translations)
-    else:
-        msg = "\n".join(f"- {topic.text}" for topic in summary.topics)
-
     return BotMessage(chat_id=update.effective_chat.id, text=msg)
 
 

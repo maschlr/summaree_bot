@@ -12,13 +12,13 @@ from ..integrations import (
     _check_existing_transcript,
     _elaborate,
     _extract_file_name,
-    _get_summary_message,
     _summarize,
     _transcribe_file,
+    _translate_topic,
 )
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
-from ..models import TelegramChat, Transcript
+from ..models import Language, Summary, TelegramChat, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from . import BotMessage
 
@@ -73,6 +73,30 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
 
     return bot_msg
+
+
+@session_context
+def _get_summary_message(update: Update, context: DbSessionContext, summary: Summary) -> BotMessage:
+    if update.effective_chat is None:
+        raise ValueError("The update must contain a chat.")
+
+    session = context.db_session
+    session.add(summary)
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    if chat is None:
+        raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
+
+    en_lang = Language.get_default_language(session)
+    if chat.language != en_lang:
+        translations = [
+            _translate_topic(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
+        ]
+        session.add_all(translations)
+        msg = "\n".join(f"- {translation.target_text}" for translation in translations)
+    else:
+        msg = "\n".join(f"- {topic.text}" for topic in summary.topics)
+
+    return BotMessage(chat_id=update.effective_chat.id, text=msg)
 
 
 async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
