@@ -38,7 +38,9 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     telegram_user_id: Mapped[int] = mapped_column(
-        "telegram_user_id", BigInteger, ForeignKey("telegram_user.id", ondelete="CASCADE")
+        "telegram_user_id",
+        BigInteger,
+        ForeignKey("telegram_user.id", ondelete="CASCADE"),
     )
     telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
     email: Mapped[Optional[str]]
@@ -84,7 +86,16 @@ class Language(Base):
 
     @property
     def flag_emoji(self) -> str:
-        exceptions = {"zh": "cn", "cs": "cz", "el": "gr", "ja": "jp", "ko": "kr", "nb": "no", "da": "dk", "uk": "ua"}
+        exceptions = {
+            "zh": "cn",
+            "cs": "cz",
+            "el": "gr",
+            "ja": "jp",
+            "ko": "kr",
+            "nb": "no",
+            "da": "dk",
+            "uk": "ua",
+        }
         _country_code = self.code[-2:]
         country_code = exceptions.get(_country_code.lower(), _country_code)
         sequence = map(lambda c: ord(c) + 127397, country_code.upper())
@@ -135,10 +146,14 @@ class TelegramChat(Base):
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
     invoices: Mapped["Invoice"] = relationship("Invoice", back_populates="chat")
 
-    @staticmethod
-    def get_subscription_status(session: Session, chat_id: int) -> Optional["SubscriptionStatus"]:
-        stmt = select(Subscription.status).where(Subscription.chat_id == chat_id)
-        return session.execute(stmt).scalars()
+    @property
+    def is_premium_active(self) -> bool:
+        """check if any subscription is active or extended"""
+        # apparently, self can't be scalars but only a single record
+        return any(
+            subscription.status in {SubscriptionStatus.active, SubscriptionStatus.extended}
+            for subscription in self.subscriptions
+        )
 
 
 class BotMessage(Base):
@@ -310,6 +325,7 @@ class Product(Base):
     premium_period: Mapped[PremiumPeriod] = mapped_column(sqlalchemy.Enum(PremiumPeriod))
     description: Mapped[str]
     price: Mapped[int]
+    discounted_price: Mapped[Optional[int]]
     currency: Mapped[str]
     active: Mapped[bool] = mapped_column(default=True)
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="product")
