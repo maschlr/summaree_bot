@@ -75,12 +75,15 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         raise ValueError("No languages found in database.")
 
     def get_lang_msg(prefix: str, target_languages: Sequence[Language] = languages, suffix: str = "") -> str:
+        lang_text = ["**>"] + [
+            f">{lang.flag_emoji} {lang.ietf_tag} \[{escape_markdown(lang.name)}\]" for lang in target_languages
+        ]
+        lang_text[-1] = f"{lang_text[-1]}||"
+
         _msg = "".join(
             [
                 prefix,
-                "\n".join(
-                    [f"{lang.flag_emoji} {lang.ietf_tag} \[{escape_markdown(lang.name)}\]" for lang in target_languages]
-                ),
+                "\n".join(lang_text),
                 f"\n\n{suffix}" if len(suffix) > 0 else suffix,
             ]
         )
@@ -99,7 +102,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                 "\n".join(
                     (
                         f"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~"
-                        "\-\> {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
+                        f"\-\> {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
                     )
                     for premium_period, product in periods_to_products.items()
                 ),
