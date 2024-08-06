@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import os
 from datetime import datetime, timedelta
-from functools import wraps
 from typing import Mapping, Optional, Sequence, Union, cast
 
 from sqlalchemy import select
@@ -27,7 +26,6 @@ from ..models.session import DbSessionContext
 from ..utils import url
 from . import BotInvoice, BotMessage
 from .db import ensure_chat, session_context
-from .exceptions import NoActivePremium
 from .helpers import escape_markdown
 
 __all__ = [
@@ -59,7 +57,7 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
         return BotMessage(
             chat_id=chat_id,
             text=escape_markdown(
-                "✋💸 Your email is not verified. Please check your inbox and click the link in the email. "
+                "✋ Your email is not verified. Please check your inbox and click the link in the email. "
                 "Use `/register` to re-send email or change email address."
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
@@ -101,9 +99,9 @@ async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await bot_msg.send(context.bot)
 
 
-def generate_subscription_keyboard(
-    context: DbSessionContext, subscription_id: Optional[int] = None
-) -> InlineKeyboardMarkup:
+def get_subscription_keyboard(
+    context: DbSessionContext, subscription_id: Optional[int] = None, return_products: bool = False
+) -> Union[InlineKeyboardMarkup, tuple[InlineKeyboardMarkup, Mapping[PremiumPeriod, Product]]]:
     callback_data: dict[str, Union[str, Sequence, Mapping]] = {"fnc": "buy_or_extend_subscription"}
     if subscription_id is not None:
         callback_data["args"] = [subscription_id]
@@ -119,9 +117,9 @@ def generate_subscription_keyboard(
 
     # create keyboard
     period_to_keyboard_button_text = {
-        PremiumPeriod.MONTH: f"🤖 1 month: ${periods_to_products[PremiumPeriod.MONTH].price}",
-        PremiumPeriod.QUARTER: f"💯 3 months: ${periods_to_products[PremiumPeriod.QUARTER].price}",
-        PremiumPeriod.YEAR: f"🔥 1 year: ${periods_to_products[PremiumPeriod.YEAR].price}",
+        PremiumPeriod.MONTH: f"🤖 1 month: ⭐{periods_to_products[PremiumPeriod.MONTH].discounted_price}",
+        PremiumPeriod.QUARTER: f"💯 3 months: ⭐{periods_to_products[PremiumPeriod.QUARTER].discounted_price}",
+        PremiumPeriod.YEAR: f"🔥 1 year: ⭐{periods_to_products[PremiumPeriod.YEAR].discounted_price}",
     }
     keyboard_buttons = [
         [
@@ -132,7 +130,10 @@ def generate_subscription_keyboard(
         for period, text in period_to_keyboard_button_text.items()
     ]
     keyboard_buttons.append([InlineKeyboardButton("😌 No, thanks", callback_data={"fnc": "remove_inline_keyboard"})])
-    return InlineKeyboardMarkup(keyboard_buttons)
+    if return_products:
+        return InlineKeyboardMarkup(keyboard_buttons), periods_to_products
+    else:
+        return InlineKeyboardMarkup(keyboard_buttons)
 
 
 @session_context
@@ -165,7 +166,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
             )
 
         subscription_msg += "\nWould you like to extend your subscription?"
-        reply_markup = generate_subscription_keyboard(context, subscriptions[0].id)
+        reply_markup = get_subscription_keyboard(context, subscriptions[0].id)
         return BotMessage(chat_id=update.effective_chat.id, text=subscription_msg, reply_markup=reply_markup)
     # case 3: chat has no active subscription
     #  -> check if user is in database, if not -> create
@@ -175,7 +176,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         if not tg_user.user:
             user = User(telegram_user=tg_user, email_token=EmailToken())
             session.add(user)
-        reply_markup = generate_subscription_keyboard(context)
+        reply_markup = get_subscription_keyboard(context)
         return BotMessage(
             chat_id=update.effective_chat.id,
             text=escape_markdown("⌛ You have no active subscription. Would you like to buy one?"),
@@ -204,7 +205,7 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
     currency = "XTR"
     # price in dollars
-    price = product.price
+    price = product.discounted_price
     days = product.premium_period.value
     prices = [LabeledPrice(f"Premium Subscription {days} days", price)]
 
@@ -329,21 +330,3 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _successful_payment_callback(update, context)
     await bot_msg.send(context.bot)
-
-
-def needs_premium(fnc):
-    @wraps(fnc)
-    def wrapper(*args, **kwargs):
-        update = kwargs.get("update", args[0])
-        context = kwargs.get("context", args[1])
-        session = context.db_session
-
-        # check if chat has active subscription
-        subscriptions = TelegramChat.get_subscription_status(session, update.effective_chat.id)
-        if not any(
-            subscription.status in {SubscriptionStatus.active, SubscriptionStatus.extended}
-            for subscription in subscriptions
-        ):
-            raise NoActivePremium("Chat has no active subscription.")
-        else:
-            return fnc(*args, **kwargs)

@@ -32,7 +32,7 @@ from . import BotMessage
 from .db import ensure_chat, session_context
 from .exceptions import NoActivePremium
 from .helpers import escape_markdown
-from .premium import generate_subscription_keyboard, needs_premium
+from .premium import get_subscription_keyboard
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -55,7 +55,6 @@ MSG = (
 
 @session_context
 @ensure_chat
-@needs_premium
 def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     """Set the target language when /lang {language_code} is issued."""
     if update.effective_chat is None:
@@ -64,11 +63,56 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     session = context.db_session
     if session is None:
         raise ValueError("The context must contain a database session.")
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    if chat is None:
+        raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
+
+    parse_mode = ParseMode.MARKDOWN_V2
 
     stmt = select(Language)
     languages = session.scalars(stmt).all()
     if not languages:
         raise ValueError("No languages found in database.")
+
+    def get_lang_msg(prefix: str, target_languages: Sequence[Language] = languages, suffix: str = "") -> str:
+        _msg = "".join(
+            [
+                prefix,
+                "\n".join(
+                    [f"{lang.flag_emoji} {lang.ietf_tag} \[{escape_markdown(lang.name)}\]" for lang in target_languages]
+                ),
+                f"\n\n{suffix}" if len(suffix) > 0 else suffix,
+            ]
+        )
+        return _msg
+
+    if not chat.is_premium_active:
+        prefix = (
+            "Setting an output language different than english is a premium feature\. "
+            "With premium active, you will be able to choose from 27 different languages:\n\n"
+        )
+        reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
+
+        suffix = "".join(
+            [
+                "Premium is on SALE right NOW:\n",
+                "\n".join(
+                    (
+                        f"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~"
+                        "\-\> {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
+                    )
+                    for premium_period, product in periods_to_products.items()
+                ),
+                "\n\nWould you like to buy premium?",
+            ]
+        )
+
+        return BotMessage(
+            chat_id=chat.id,
+            text=get_lang_msg(prefix, languages, suffix),
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+        )
 
     example_suffix = "\n".join(
         [
@@ -79,21 +123,6 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         ]
     )
 
-    def msg(prefix: str, target_languages: Sequence[Language] = languages, suffix: str = "") -> str:
-        _msg = "".join(
-            [
-                prefix,
-                "\n".join([f"{lang.flag_emoji} {lang.ietf_tag} [{lang.name}]" for lang in target_languages]),
-                f"\n\n{suffix}" if len(suffix) > 0 else suffix,
-            ]
-        )
-        return escape_markdown(_msg)
-
-    parse_mode = ParseMode.MARKDOWN_V2
-
-    chat = session.get(TelegramChat, update.effective_chat.id)
-    if chat is None:
-        raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
     try:
         if context.args is None:
             raise IndexError
@@ -110,7 +139,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                 )
                 return BotMessage(
                     chat_id=chat.id,
-                    text=msg(
+                    text=get_lang_msg(
                         _msg,
                         [],
                     ),
@@ -127,15 +156,15 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
 
                 return BotMessage(
                     chat_id=chat.id,
-                    text=msg(answer, other_available_languages, example_suffix),
+                    text=get_lang_msg(answer, other_available_languages, example_suffix),
                     parse_mode=parse_mode,
                 )
 
         else:
-            prefix = "Unknown language.\n" "Available languages are:\n\n"
+            prefix = "Unknown language\.\n" "Available languages are:\n\n"
             return BotMessage(
                 chat_id=chat.id,
-                text=msg(prefix, languages, example_suffix),
+                text=get_lang_msg(prefix, languages, example_suffix),
                 parse_mode=parse_mode,
             )
 
@@ -147,7 +176,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         reply_markup = _get_lang_inline_keyboard(update, context)
         return BotMessage(
             chat_id=chat.id,
-            text=msg(
+            text=get_lang_msg(
                 (
                     "Current language is: "
                     f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n\n"
@@ -281,7 +310,7 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         BotMessage(
             _msg,
             chat_id=update.effective_chat.id,
-            reply_markup=generate_subscription_keyboard(context),
+            reply_markup=get_subscription_keyboard(context),
         )
     await bot_msg.send(context.bot)
 
