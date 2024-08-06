@@ -137,14 +137,14 @@ class TelegramChat(Base):
     username: Mapped[Optional[str]]
 
     # language = None means translate to language of transcript
-    # TODO: make translation premium feature
     language_id: Mapped[Optional[int]] = mapped_column(ForeignKey("language.id"))
     language: Mapped["Language"] = relationship(back_populates="chats")
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="chat")
 
     users: Mapped[set["TelegramUser"]] = relationship(secondary=chats_to_users_rel, back_populates="chats")
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
-    invoices: Mapped["Invoice"] = relationship("Invoice", back_populates="chat")
+    invoices: Mapped[List["Invoice"]] = relationship("Invoice", back_populates="chat")
+    transcripts: Mapped[List["Transcript"]] = relationship(back_populates="tg_chat")
 
     @property
     def is_premium_active(self) -> bool:
@@ -190,6 +190,9 @@ class Transcript(Base):
 
     tg_user_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_user.id"))
     tg_user: Mapped["TelegramUser"] = relationship(back_populates="transcripts")
+
+    tg_chat_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_chat.id"))
+    tg_chat: Mapped["TelegramChat"] = relationship(back_populates="transcripts")
 
 
 class Summary(Base):
