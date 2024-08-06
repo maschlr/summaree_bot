@@ -135,6 +135,7 @@ def _transcribe_file(
         file_size=voice_or_audio.file_size,
         result=transcription_result,
         tg_user_id=update.effective_user.id,
+        tg_chat_id=update.effective_chat.id,
     )
     session.add(transcript)
     return transcript
