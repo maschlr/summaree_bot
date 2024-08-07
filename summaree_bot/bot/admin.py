@@ -82,7 +82,7 @@ def _stats(update: Update, context: DbSessionContext) -> BotMessage:
     session = context.db_session
     summaries = session.scalars(select(Summary)).all()
 
-    users = set(filter(lambda user: user is not None, (s.transcript.tg_user_id for s in summaries)))
+    users = set(filter(lambda user: user is not None, (s.tg_user_id for s in summaries)))
     total_row_data = ["Total", len(users), len(summaries)]
 
     table = pt.PrettyTable(["Time", "Users", "Summaries"])
@@ -100,7 +100,7 @@ def _stats(update: Update, context: DbSessionContext) -> BotMessage:
 
     for row_label, row_timespan in label_to_datetime.items():
         row_summaries = list(filter(lambda s: s.created_at > row_timespan, summaries))
-        row_users = set(filter(lambda user: user is not None, (s.transcript.tg_user_id for s in row_summaries)))
+        row_users = set(filter(lambda user: user is not None, (s.tg_user_id for s in row_summaries)))
         table.add_row([row_label, len(row_users), len(row_summaries)])
 
     table.add_row(total_row_data)

@@ -1,9 +1,11 @@
 import asyncio
+import datetime
 import tempfile
 from pathlib import Path
 from typing import Any, Coroutine, cast
 
 import magic
+from sqlalchemy import extract
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
@@ -125,6 +127,8 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     ):
         raise ValueError("The update must contain chat/user/voice/audio message.")
 
+    # TODO: restrict file size to 10MB for free users
+    # TODO: openai whisper docs mention possible splitting of files >20MB -> look into/inplement
     file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
     if file_size > 20 * 1024 * 1024:
         await update.message.reply_text(
@@ -132,12 +136,34 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
+    with Session.begin() as session:
+        # check how many transcripts/summaries have already been created in the current month
+        chat = session.get(TelegramChat, update.effective_chat.id)
+        current_month = datetime.datetime.now(tz=datetime.UTC).month
+        summaries_this_month = (
+            session.query(Summary)
+            .filter(
+                extract("month", Summary.created_at) == current_month, Summary.tg_chat_id == update.effective_chat.id
+            )
+            .all()
+        )
+        if len(summaries_this_month) >= 10 and not chat.is_premium:
+            msg = BotMessage(
+                chat_id=update.effective_chat.id,
+                text=(
+                    "🚫 Sorry, you have reached the limit of 10 summaries per month. "
+                    "Please consider upgrading to `/premium` to get unlimited summaries."
+                ),
+                reply_to_message_id=update.effective_message.id,
+            )
+            await msg.send(context.bot)
+            return
+
     _logger.info(f"Transcribing and summarizing message: {update.message}")
     async with asyncio.TaskGroup() as tg:
         start_msg_task = tg.create_task(
             update.message.reply_text(
                 "🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment.",
-                reply_to_message_id=update.message.id,
             )
         )
         bot_response_msg_task = tg.create_task(get_summary_msg(update, context))

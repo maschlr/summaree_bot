@@ -122,10 +122,8 @@ class TelegramUser(Base):
 
     # use str of Model here to avoid linter warning
     chats: Mapped[set["TelegramChat"]] = relationship(secondary=chats_to_users_rel, back_populates="users")
-
-    transcripts: Mapped[List["Transcript"]] = relationship(back_populates="tg_user")
-
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="tg_user")
+    summaries: Mapped[List["Summary"]] = relationship(back_populates="tg_user")
 
 
 class TelegramChat(Base):
@@ -144,7 +142,7 @@ class TelegramChat(Base):
     users: Mapped[set["TelegramUser"]] = relationship(secondary=chats_to_users_rel, back_populates="chats")
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
     invoices: Mapped[List["Invoice"]] = relationship("Invoice", back_populates="chat")
-    transcripts: Mapped[List["Transcript"]] = relationship(back_populates="tg_chat")
+    summaries: Mapped[List["Summary"]] = relationship(back_populates="tg_chat")
 
     @property
     def is_premium_active(self) -> bool:
@@ -188,12 +186,6 @@ class Transcript(Base):
     # https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#one-to-one
     summary: Mapped["Summary"] = relationship(back_populates="transcript")
 
-    tg_user_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_user.id"))
-    tg_user: Mapped["TelegramUser"] = relationship(back_populates="transcripts")
-
-    tg_chat_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_chat.id"))
-    tg_chat: Mapped["TelegramChat"] = relationship(back_populates="transcripts")
-
 
 class Summary(Base):
     __tablename__ = "summary"
@@ -201,6 +193,12 @@ class Summary(Base):
 
     transcript_id = mapped_column(ForeignKey("transcript.id", ondelete="CASCADE"))
     transcript: Mapped["Transcript"] = relationship(back_populates="summary")
+
+    tg_user_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_user.id"))
+    tg_user: Mapped["TelegramUser"] = relationship(back_populates="summaries")
+
+    tg_chat_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_chat.id"))
+    tg_chat: Mapped["TelegramChat"] = relationship(back_populates="summaries")
 
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="summary")
     topics: Mapped[List["Topic"]] = relationship(back_populates="summary")

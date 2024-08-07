@@ -92,7 +92,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     if not chat.is_premium_active:
         prefix = (
             "Setting an output language different than english is a premium feature\. "
-            "With premium active, you will be able to choose from 27 different languages:\n\n"
+            f"With premium active, you will be able to choose from {len(languages)} different languages:\n"
         )
         reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
 

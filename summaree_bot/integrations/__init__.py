@@ -1,4 +1,4 @@
-from .deepl import check_database_languages
+from .deepl import _translate_topic, check_database_languages
 from .email import Email, TokenEmail, is_valid_email
 from .openai import (
     _check_existing_transcript,
@@ -6,7 +6,6 @@ from .openai import (
     _extract_file_name,
     _summarize,
     _transcribe_file,
-    _translate_topic,
 )
 
 __all__ = [
@@ -20,5 +19,4 @@ __all__ = [
     "_extract_file_name",
     "_transcribe_file",
     "_translate_topic",
-    "_get_summary_message",
 ]

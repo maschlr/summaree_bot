@@ -23,12 +23,7 @@ mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
 client = OpenAI()
 
-__all__ = [
-    "_check_existing_transcript",
-    "_extract_file_name",
-    "_transcribe_file",
-    "_summarize",
-]
+__all__ = ["_check_existing_transcript", "_extract_file_name", "_transcribe_file", "_summarize", "_elaborate"]
 
 
 def transcode_to_mp3(file_path: Path) -> Path:
@@ -133,8 +128,6 @@ def _transcribe_file(
         mime_type=voice_or_audio.mime_type,
         file_size=voice_or_audio.file_size,
         result=transcription_result,
-        tg_user_id=update.effective_user.id,
-        tg_chat_id=update.effective_chat.id,
     )
     session.add(transcript)
     return transcript
@@ -170,6 +163,8 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     summary = Summary(
         transcript=transcript,
         topics=[Topic(text=text) for text in summary_data["topics"]],
+        tg_user_id=update.effective_user.id,
+        tg_chat_id=update.effective_chat.id,
     )
     session.add(summary)
     return summary
