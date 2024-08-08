@@ -180,6 +180,8 @@ class Transcript(Base):
     file_size: Mapped[int]
     result: Mapped[str]
 
+    finished_at: Mapped[Optional[datetime]]
+
     # when creating transcript, the input language is unknown
     input_language_id: Mapped[Optional[int]] = mapped_column(ForeignKey("language.id"))
     input_language: Mapped[Optional["Language"]] = relationship(back_populates="transcripts")
@@ -193,6 +195,7 @@ class Transcript(Base):
 class Summary(Base):
     __tablename__ = "summary"
     id: Mapped[int] = mapped_column(primary_key=True)
+    finished_at: Mapped[Optional[datetime]]
 
     transcript_id = mapped_column(ForeignKey("transcript.id", ondelete="CASCADE"))
     transcript: Mapped["Transcript"] = relationship(back_populates="summary")
@@ -226,7 +229,8 @@ class TopicTranslation(Base):
     # translation always has topic as input
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    # input lang is always english
+    finished_at: Mapped[Optional[datetime]]
+
     # source_text = topic.text
     target_lang_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
     target_lang: Mapped["Language"] = relationship(back_populates="translations")
