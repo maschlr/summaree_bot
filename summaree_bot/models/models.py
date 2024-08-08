@@ -1,3 +1,4 @@
+import datetime as dt
 import enum
 import secrets
 from datetime import datetime
@@ -10,8 +11,10 @@ from sqlalchemy.types import BigInteger
 
 
 class Base(DeclarativeBase):
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(dt.UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(dt.UTC), onupdate=lambda: datetime.now(dt.UTC)
+    )
 
     # https://alembic.sqlalchemy.org/en/latest/naming.html#integration-of-naming-conventions-into-operations-autogenerate
     metadata = MetaData(
