@@ -22,7 +22,8 @@ from ..integrations.deepl import _translate_text
 from ..logging import getLogger
 from ..models import Language, Summary, TelegramChat, Transcript
 from ..models.session import DbSessionContext, Session, session_context
-from . import BotMessage
+from . import AdminChannelMessage, BotMessage
+from .helpers import escape_markdown
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -127,18 +128,24 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     ):
         raise ValueError("The update must contain chat/user/voice/audio message.")
 
-    # TODO: restrict file size to 10MB for free users
-    # TODO: openai whisper docs mention possible splitting of files >20MB -> look into/inplement
-    file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
-    if file_size > 20 * 1024 * 1024:
-        await update.message.reply_text(
-            "🚫 Sorry, the file is too big to be processed (max. 20MB). Please send a smaller file."
-        )
-        return
-
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
+
+        file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
+        if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
+            await update.message.reply_markdown_v2(
+                escape_markdown(
+                    "🚫 Maximum file size for non-premium is 10MB. Please send a smaller file or upgrade to `/premium`."
+                )
+            )
+            return
+        elif file_size > 20 * 1024 * 1024:
+            # TODO: openai whisper docs mention possible splitting of files >20MB -> look into/inplement
+            await update.message.reply_text(
+                "🚫 Sorry, the file is too big to be processed (max. 20MB). Please send a smaller file."
+            )
+            return
         current_month = datetime.datetime.now(tz=datetime.UTC).month
         summaries_this_month = (
             session.query(Summary)
@@ -148,15 +155,12 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             .all()
         )
         if len(summaries_this_month) >= 10 and not chat.is_premium:
-            msg = BotMessage(
-                chat_id=update.effective_chat.id,
-                text=(
+            await update.effective_message.reply_markdown_v2(
+                escape_markdown(
                     "🚫 Sorry, you have reached the limit of 10 summaries per month. "
                     "Please consider upgrading to `/premium` to get unlimited summaries."
-                ),
-                reply_to_message_id=update.effective_message.id,
+                )
             )
-            await msg.send(context.bot)
             return
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
