@@ -35,6 +35,7 @@ from summaree_bot.bot.user import (
 )
 from summaree_bot.integrations import check_database_languages
 from summaree_bot.logging import getLogger
+from summaree_bot.models import Subscription
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -107,6 +108,8 @@ def main() -> None:
             await fnc(*args)
 
     application.post_init = post_init
+    application.job_queue.run_repeating(Subscription.update_subscription_status, interval=60 * 30, first=10)
+
     _logger.info("Starting Summar.ee Bot")
     # Run the bot until the user presses Ctrl-C
     if webhook_url := os.getenv("TELEGRAM_WEBHOOK_URL"):

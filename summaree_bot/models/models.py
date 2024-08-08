@@ -8,6 +8,9 @@ import sqlalchemy
 from sqlalchemy import Column, ForeignKey, MetaData, Table, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.types import BigInteger
+from telegram.ext import ContextTypes
+
+from .session import Session as SessionContext
 
 
 class Base(DeclarativeBase):
@@ -275,8 +278,20 @@ class Subscription(Base):
     type: Mapped[SubscriptionType] = mapped_column(sqlalchemy.Enum(SubscriptionType))
 
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="subscription")
-    # TODO: implement worker that periodically checks for expired subscriptions
-    # TODO: implement check for subscription status on every summarization request
+
+    @staticmethod
+    async def update_subscription_status(context: ContextTypes.DEFAULT_TYPE):
+        """Async function to update subscription status (if expired)"""
+        stmt = (
+            select(Subscription)
+            .where(Subscription.status.in_([SubscriptionStatus.active, SubscriptionStatus.extended]))
+            .where(Subscription.end_date < dt.datetime.now(dt.UTC))
+        )
+        with SessionContext.begin() as session:
+            for subscription in session.execute(stmt):
+                subscription.status = SubscriptionStatus.expired
+                session.add(subscription)
+            session.commit()
 
 
 class PaymentProvider(enum.Enum):

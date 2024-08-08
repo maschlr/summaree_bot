@@ -1,4 +1,4 @@
-python-telegram-bot[webhooks,callback-data]
+python-telegram-bot[webhooks,callback-data,job-queue]
 openai
 python-dotenv
 deepl
