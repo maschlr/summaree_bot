@@ -1,3 +1,4 @@
+import datetime as dt
 import os
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
@@ -72,10 +73,14 @@ def _translate_topic(
     if translation := session.scalars(stmt).one_or_none():
         return translation
 
+    created_at = dt.datetime.now(dt.UTC)
+
     source_text = topic.text
     deepl_result = translator.translate_text(source_text, target_lang=target_language.code)
 
     translation = TopicTranslation(
+        created_at=created_at,
+        finished_at=dt.datetime.now(dt.UTC),
         topic=topic,
         target_lang=target_language,
         target_text=deepl_result.text,

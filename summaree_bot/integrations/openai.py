@@ -1,3 +1,4 @@
+import datetime as dt
 import hashlib
 import json
 import logging
@@ -116,11 +117,13 @@ def _transcribe_file(
     else:
         supported_file_path = file_path
 
-    # send the .mp3 file to openai whisper, create a db entry and return it
+    # send the audio file to openai whisper, create a db entry and return it
     with open(supported_file_path, "rb") as fp:
         transcription_result = client.audio.transcriptions.create(model="whisper-1", file=fp, response_format="text")
 
     transcript = Transcript(
+        created_at=update.effective_message.date,
+        finished_at=dt.datetime.now(dt.UTC),
         file_unique_id=voice_or_audio.file_unique_id,
         file_id=voice_or_audio.file_id,
         sha256_hash=sha256_hash,
@@ -151,6 +154,7 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         {"role": "user", "content": user_message},
     ]
 
+    created_at = dt.datetime.now(dt.UTC)
     summary_data = get_openai_chatcompletion(messages)
 
     # TODO: translation logic: premium feature
@@ -161,6 +165,8 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         transcript.input_language = language
 
     summary = Summary(
+        created_at=created_at,
+        finished_at=dt.datetime.now(dt.UTC),
         transcript=transcript,
         topics=[Topic(text=text) for text in summary_data["topics"]],
         tg_user_id=update.effective_user.id,
