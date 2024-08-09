@@ -1,4 +1,5 @@
 import io
+import os
 import pathlib
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -65,6 +66,11 @@ class BotMessage(BotResponse):
         kwargs_wo_text = {key: value for key, value in self.items() if key != "text"}
         for chunk in self.split():
             await bot.send_message(text=chunk, **kwargs_wo_text)
+
+
+@dataclass
+class AdminChannelMessage(BotMessage):
+    chat_id = os.getenv("ADMIN_CHAT_ID")
 
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.bot.html#telegram.Bot.send_invoice
