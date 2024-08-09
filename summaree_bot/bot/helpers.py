@@ -70,7 +70,8 @@ class BotMessage(BotResponse):
 
 @dataclass
 class AdminChannelMessage(BotMessage):
-    chat_id = os.getenv("ADMIN_CHAT_ID")
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs, chat_id=os.getenv("ADMIN_CHAT_ID"))
 
 
 # https://docs.python-telegram-bot.org/en/stable/telegram.bot.html#telegram.Bot.send_invoice

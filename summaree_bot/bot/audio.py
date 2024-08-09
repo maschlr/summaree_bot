@@ -175,9 +175,17 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
 
     start_message = start_msg_task.result()
     bot_response_msg = bot_response_msg_task.result()
+
+    new_summary_msg = AdminChannelMessage(
+        text=(
+            f"📝 New summary created in chat {update.effective_chat.id} "
+            f"by user {update.effective_user.username or update.effective_user.first_name} ({update.effective_user.id})"
+        )
+    )
     async with asyncio.TaskGroup() as tg:
         tg.create_task(start_message.delete())
         tg.create_task(bot_response_msg.send(context.bot))
+        tg.create_task(new_summary_msg.send(context.bot))
 
 
 @session_context

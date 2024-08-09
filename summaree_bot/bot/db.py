@@ -2,6 +2,7 @@ from functools import wraps
 
 from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
 from ..models.session import Session, session_context
+from .helpers import AdminChannelMessage
 
 __all__ = ["session_context", "ensure_chat", "Session"]
 
@@ -30,6 +31,8 @@ def ensure_chat(fnc):
             tg_user = TelegramUser(**tg_user_kwargs)
             session.add(tg_user)
 
+            context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New user: {tg_user.username}"))
+
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
             # standard is english language
             en_lang = Language.get_default_language(session)
@@ -43,6 +46,8 @@ def ensure_chat(fnc):
                 users={tg_user},
             )
             session.add(chat)
+
+            context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New chat: {chat.title}"))
             # TODO: emit welcome message
         elif tg_user not in chat.users:
             chat.users.append(tg_user)

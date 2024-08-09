@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Callable, cast
 
 from telegram import Update
@@ -11,9 +12,9 @@ __all__ = ["remove_inline_keyboard", "dispatch_callback"]
 
 
 async def remove_inline_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback Handler to remove inline keyboard"""
     if not update.callback_query or not update.effective_message:
         raise ValueError("update needs callbackquery and effective message")
-    """Callback Handler to remove inline keyboard"""
     await update.callback_query.answer()
     await update.effective_message.edit_reply_markup(reply_markup=None)
 
@@ -44,3 +45,11 @@ async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     args: list = callback_data.get("args", [])
     kwargs: dict = callback_data.get("kwargs", {})
     await fnc(update, context, *args, **kwargs)
+
+
+async def process_message_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process the message queue"""
+    async with asyncio.TaskGroup() as tg:
+        while context.bot_data["message_queue"]:
+            msg = context.bot_data["message_queue"].pop()
+            tg.create_task(msg.send(context.bot))

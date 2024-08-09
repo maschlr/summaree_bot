@@ -1,4 +1,5 @@
 import os
+from collections import deque
 from urllib.parse import urlparse
 
 from telegram import BotCommand
@@ -19,7 +20,7 @@ from summaree_bot.bot.error import (
     error_handler,
     invalid_button_handler,
 )
-from summaree_bot.bot.misc import dispatch_callback
+from summaree_bot.bot.misc import dispatch_callback, process_message_queue
 from summaree_bot.bot.premium import (  # referral_handler,
     precheckout_callback,
     premium_handler,
@@ -109,6 +110,8 @@ def main() -> None:
 
     application.post_init = post_init
     application.job_queue.run_repeating(Subscription.update_subscription_status, interval=60 * 30, first=10)
+    application.bot_data["message_queue"] = deque()
+    application.job_queue.run_repeating(process_message_queue, interval=60, first=0)
 
     _logger.info("Starting Summar.ee Bot")
     # Run the bot until the user presses Ctrl-C
