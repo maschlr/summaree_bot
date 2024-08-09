@@ -6,13 +6,13 @@ import os
 from datetime import datetime, timedelta
 
 import prettytable as pt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..integrations.openai import summary_prompt_file_path
-from ..models import Summary
+from ..models import Summary, TelegramUser
 from ..models.session import DbSessionContext, session_context
 from . import BotDocument, BotMessage
 
@@ -104,6 +104,37 @@ def _stats(update: Update, context: DbSessionContext) -> BotMessage:
         table.add_row([row_label, len(row_users), len(row_summaries)])
 
     table.add_row(total_row_data)
+
+    msg = BotMessage(
+        chat_id=update.message.chat_id,
+        text=f"```{table}```",
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
+    return msg
+
+
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = _top(update, context)
+    await msg.send(context.bot)
+
+
+@session_context
+def _top(update: Update, context: DbSessionContext):
+    session = context.db_session
+
+    result = session.query(Summary.tg_user_id, func.count(Summary.id).label("count")).group_by(Summary.tg_user_id).all()
+
+    result.sort(key=lambda x: x[1], reverse=True)
+
+    table = pt.PrettyTable(["User", "Summaries"])
+    table.align["User"] = "l"
+    table.align["Summaries"] = "r"
+
+    for user_id, count in result:
+        user = session.get(TelegramUser, user_id)
+        if not user:
+            continue
+        table.add_row([f"{user.username or user.first_name} ({user.id})", count])
 
     msg = BotMessage(
         chat_id=update.message.chat_id,
