@@ -1,10 +1,13 @@
 from functools import wraps
 
+from telegram import Update
+from telegram.ext import ContextTypes
+
 from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
 from ..models.session import Session, session_context
 from .helpers import AdminChannelMessage
 
-__all__ = ["session_context", "ensure_chat", "Session"]
+__all__ = ["session_context", "ensure_chat", "Session", "chat_migration"]
 
 
 def ensure_chat(fnc):
@@ -60,3 +63,24 @@ def ensure_chat(fnc):
         return fnc(*args, **kwargs)
 
     return wrapper
+
+
+async def chat_migration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for Superchat migration"""
+    message = update.message
+    application = context.application
+    application.migrate_chat_data(message=message)
+
+    # Get old and new chat ids
+    old_id = message.migrate_from_chat_id or message.chat_id
+    new_id = message.migrate_to_chat_id or message.chat_id
+
+    with Session.begin() as session:
+        chat = session.get(TelegramChat, old_id)
+        if chat is None:
+            return
+
+        chat.id = new_id
+        session.flush()
+        session.commit()
+        session.expire(chat)

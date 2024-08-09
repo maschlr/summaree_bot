@@ -15,6 +15,7 @@ from telegram.ext import (
 
 from summaree_bot.bot.admin import dataset, stats
 from summaree_bot.bot.audio import transcribe_and_summarize
+from summaree_bot.bot.db import chat_migration
 from summaree_bot.bot.error import (
     bad_command_handler,
     error_handler,
@@ -97,6 +98,8 @@ def main() -> None:
             filters.ALL & ~filters.VOICE & ~filters.AUDIO & ~filters.COMMAND & ~filters.SUCCESSFUL_PAYMENT, catch_all
         )
     )
+    # chat migrating to SuperChat
+    application.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, chat_migration))
     # ...and the error handler
     application.add_error_handler(error_handler)
 
