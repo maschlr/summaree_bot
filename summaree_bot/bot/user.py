@@ -623,6 +623,22 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await bot_msg.send(context.bot)
 
 
+# TODO:
+# - /support
+# - /paysupport
+# - /terms
+async def support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    pass
+
+
+async def paysupport(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    pass
+
+
+async def terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    pass
+
+
 @session_context
 @ensure_chat
 def _catch_all(update: Update, context: DbSessionContext) -> Optional[BotMessage]:

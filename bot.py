@@ -44,8 +44,8 @@ _logger = getLogger(__name__)
 
 
 def main() -> None:
-    check_database_languages()
     """Start the bot."""
+    check_database_languages()
     # Create the Application and pass it your bot's token.
     if telegram_bot_token := os.getenv("TELEGRAM_BOT_TOKEN"):
         application = (
