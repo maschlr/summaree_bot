@@ -27,14 +27,7 @@ from summaree_bot.bot.premium import (  # referral_handler,
     premium_handler,
     successful_payment_callback,
 )
-from summaree_bot.bot.user import (
-    activate,
-    catch_all,
-    help_handler,
-    register,
-    set_lang,
-    start,
-)
+from summaree_bot.bot.user import catch_all, help_handler, set_lang, start
 from summaree_bot.integrations import check_database_languages
 from summaree_bot.logging import getLogger
 from summaree_bot.models import Subscription
@@ -69,8 +62,8 @@ def main() -> None:
             "Set default language for summaries (default is English)",
         ),
         (help_handler, "help", "Show help message"),
-        (register, "register", "Register a new email address"),
-        (activate, "activate", "Activate a token"),
+        # (register, "register", "Register a new email address"),
+        # (activate, "activate", "Activate a token"),
     ):
         application.add_handler(CommandHandler(command, func))
         bot_command: BotCommand = BotCommand(command, description)
