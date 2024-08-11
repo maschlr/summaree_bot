@@ -611,20 +611,61 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await bot_msg.send(context.bot)
 
 
-# TODO:
-# - /support
-# - /paysupport
-# - /terms
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    pass
+    msg = BotMessage(
+        text="Support is available at [summar\.ee bot support channel](https://t.me/+pfu9RGUlNt05MTZh)",
+        chat_id=update.effective_chat.id,
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
+    await msg.send(context.bot)
 
 
 async def paysupport(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    pass
+    await support(update, context)
 
 
 async def terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    pass
+    # fmt: off
+    # pylint: disable=E501
+    # flake8: noqa: E501
+    text = r"""*📜 summar\.ee Terms of Service*
+
+By using *summar\.ee*, you agree to the following terms:
+
+1\. *Privacy & Data Use:*
+   \- Your voice messages, translations, and summaries are processed securely\.
+   \- We do not store any personal data beyond what is necessary for the service\.
+   \- Transcriptions, translations, and summaries are held for processing and analysis\.
+
+2\. *Accuracy & Limitations:*
+   \- While we strive for high accuracy, transcription, translation, and summarization results may vary\.
+   \- The bot may not work perfectly with poor audio quality or heavy background noise\.
+
+3\. *Usage:*
+   \- *summar\.ee* is intended for personal and commercial use\.
+   \- Abusive, illegal, or harmful use of the bot is strictly prohibited\.
+   \- We reserve the right to block or restrict access to users who violate these terms\.
+
+4\. *Service Availability:*
+   \- *summar\.ee* is provided "as is" and "as available"\.
+   \- We do not guarantee uninterrupted service and may update or modify the bot at any time without prior notice\.
+
+5\. *Liability:*
+   \- We are not liable for any loss, damage, or inconvenience caused by the use of this bot\.
+   \- Users assume all responsibility for the use and interpretation of the bot's outputs\.
+
+6\. *Updates to Terms:*
+   \- These terms may be updated periodically\. Continued use of the bot after changes constitutes acceptance of the new terms\.
+
+By interacting with *summar\.ee*, you acknowledge that you have read, understood, and agreed to these terms\."""
+    # pylint: enable=E501
+    # fmt: on
+    msg = BotMessage(
+        text=text,
+        chat_id=update.effective_chat.id,
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
+    await msg.send(context.bot)
 
 
 @session_context

@@ -27,7 +27,15 @@ from summaree_bot.bot.premium import (  # referral_handler,
     premium_handler,
     successful_payment_callback,
 )
-from summaree_bot.bot.user import catch_all, help_handler, set_lang, start
+from summaree_bot.bot.user import (
+    catch_all,
+    help_handler,
+    paysupport,
+    set_lang,
+    start,
+    support,
+    terms,
+)
 from summaree_bot.integrations import check_database_languages
 from summaree_bot.logging import getLogger
 from summaree_bot.models import Subscription
@@ -62,6 +70,9 @@ def main() -> None:
             "Set default language for summaries (default is English)",
         ),
         (help_handler, "help", "Show help message"),
+        (support, "support", "Get support"),
+        (paysupport, "paysupport", "Get support for payments"),
+        (terms, "terms", "Show terms of service"),
         # (register, "register", "Register a new email address"),
         # (activate, "activate", "Activate a token"),
     ):
