@@ -34,6 +34,7 @@ __all__ = [
     "payment_callback",
     "referral_handler",
     "successful_payment_callback",
+    "get_sale_text",
 ]
 
 
@@ -177,16 +178,36 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
             user = User(telegram_user=tg_user, email_token=EmailToken())
             session.add(user)
         reply_markup = get_subscription_keyboard(context)
+        reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
+
+        text = r"You currently have no active subscription\. " + get_sale_text(periods_to_products)
         return BotMessage(
             chat_id=update.effective_chat.id,
-            text=escape_markdown("⌛ You have no active subscription. Would you like to buy one?"),
+            text=text,
             reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
+
+
+def get_sale_text(periods_to_products: Mapping[PremiumPeriod, Product]) -> str:
+    return "".join(
+        [
+            "Premium is on SALE right NOW:\n",
+            "\n".join(
+                (
+                    f"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~ "
+                    f"➡️ {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
+                )
+                for premium_period, product in periods_to_products.items()
+            ),
+            "\n\nWould you like to buy premium?",
+        ]
+    )
 
 
 async def premium_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _premium_handler(update, context)
-    await context.bot.send_message(**bot_msg)
+    await bot_msg.send(context.bot)
 
 
 @session_context
@@ -200,20 +221,39 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     if product is None:
         raise ValueError(f"product {product_id} not found in database")
 
-    title = "summar.ee premium subscription"
-    description = "\n".join(["Premium features:", "- Unlimited summaries", "- unlimited translations"])
-    # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
-    currency = "XTR"
-    # price in dollars
-    price = product.discounted_price
-    days = product.premium_period.value
-    prices = [LabeledPrice(f"Premium Subscription {days} days", price)]
-
     chat_id = update.effective_chat.id
     tg_user = session.get(TelegramUser, update.effective_user.id)
 
-    invoice = Invoice(tg_user_id=tg_user.id, chat_id=chat_id, product_id=product.id)
+    # create subscription
+    start_date = datetime.now(dt.UTC)
+    end_date = start_date + timedelta(days=product.premium_period.value)
+    subscription = Subscription(
+        tg_user=tg_user,
+        chat_id=chat_id,
+        start_date=start_date,
+        end_date=end_date,
+        status=SubscriptionStatus.pending,
+        type=SubscriptionType.paid,
+        active=False,
+    )
+    session.add(subscription)
+
+    title = "summar.ee premium subscription"
+    # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
+    currency = "XTR"
+    price = product.discounted_price
+    days = product.premium_period.value
+    description = (
+        f"Premium features for {days} days (from {start_date.strftime('%x')} to {end_date.strftime('%x')}; "
+        "ends automatically)"
+    )
+    prices = [LabeledPrice(description, price)]
+
+    invoice = Invoice(tg_user_id=tg_user.id, chat_id=chat_id, product_id=product.id, subscription=subscription)
     session.add(invoice)
+
+    # w/o flush, invoice has no id
+    session.flush()
 
     payload = url.encode([PAYMENT_PAYLOAD_TOKEN, invoice.id])
 
@@ -224,7 +264,7 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         title=title,
         description=description,
         payload=str(payload, "ascii"),
-        provider_token=STRIPE_TOKEN,
+        provider_token="",
         currency=currency,
         prices=prices,
         need_email=False,
@@ -255,7 +295,7 @@ def _precheckout_callback(update: Update, context: DbSessionContext) -> bool:
     query = update.pre_checkout_query
     if query is None:
         raise ValueError("update.pre_checkout_query is None")
-    # check the payload, is this from your bot?
+    # check the payload, is this from your bot? will raise if not
     check_payment_payload(context, query.invoice_payload)
     return True
 
@@ -296,7 +336,7 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     # create subscription
     invoice = session.get(Invoice, invoice_id)
     if not invoice:
-        raise ValueError("Invoice not found")
+        raise ValueError(f"Invoice with ID {invoice_id} not found")
 
     if (_tg_user := update.effective_user) is None:
         raise ValueError("telegram user is None")
@@ -305,25 +345,13 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     if tg_user is None or tg_user.user is None:
         raise ValueError("(telegram) user not found in database")
 
-    if invoice.user != tg_user.user:
-        invoice.user = tg_user.user
     invoice.status = InvoiceStatus.paid
-
-    # create subscription
-    start_date = datetime.now(dt.UTC)
-    end_date = start_date + timedelta(days=invoice.product.premium_period.value)
-    subscription = Subscription(
-        user=invoice.user,
-        chat=invoice.chat,
-        start_date=start_date,
-        end_date=end_date,
-        status=SubscriptionStatus.active,
-        type=SubscriptionType.paid,
-    )
-    session.add(subscription)
+    invoice.subscription.active = True
+    invoice.subscription.status = SubscriptionStatus.active
 
     return BotMessage(
-        chat_id=update.message.chat_id, text=f"Thank you for your payment! Subscription is active until {end_date}"
+        chat_id=update.message.chat_id,
+        text=f"Thank you for your payment! Subscription is active until {invoice.subscription.end_date}",
     )
 
 

@@ -53,7 +53,7 @@ def ensure_chat(fnc):
             context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New chat: {chat.title}"))
             # TODO: emit welcome message
         elif tg_user not in chat.users:
-            chat.users.append(tg_user)
+            chat.users.add(tg_user)
 
         # update chat data
         chat.title = update.effective_chat.title
@@ -81,6 +81,4 @@ async def chat_migration(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         chat.id = new_id
-        session.flush()
-        session.commit()
-        session.expire(chat)
+    return

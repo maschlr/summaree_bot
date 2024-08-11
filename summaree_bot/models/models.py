@@ -51,7 +51,6 @@ class User(Base):
     telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
     email: Mapped[Optional[str]]
     email_token: Mapped["EmailToken"] = relationship(back_populates="user")
-    subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="user")
 
     referral_token: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4), unique=True)
 
@@ -130,6 +129,7 @@ class TelegramUser(Base):
     chats: Mapped[set["TelegramChat"]] = relationship(secondary=chats_to_users_rel, back_populates="users")
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="tg_user")
     summaries: Mapped[List["Summary"]] = relationship(back_populates="tg_user")
+    subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="tg_user")
 
 
 class TelegramChat(Base):
@@ -262,8 +262,8 @@ class Subscription(Base):
     __tablename__ = "subscription"
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
-    user: Mapped["User"] = relationship(back_populates="subscriptions")
+    tg_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_user.id"))
+    tg_user: Mapped["TelegramUser"] = relationship(back_populates="subscriptions")
 
     chat_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_chat.id"))
     chat: Mapped["TelegramChat"] = relationship(back_populates="subscriptions")
@@ -288,10 +288,8 @@ class Subscription(Base):
             .where(Subscription.end_date < dt.datetime.now(dt.UTC))
         )
         with SessionContext.begin() as session:
-            for subscription in session.execute(stmt):
+            for subscription in session.execute(stmt).scalars():
                 subscription.status = SubscriptionStatus.expired
-                session.add(subscription)
-            session.commit()
 
 
 class PaymentProvider(enum.Enum):

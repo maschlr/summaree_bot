@@ -32,7 +32,7 @@ from . import BotMessage
 from .db import ensure_chat, session_context
 from .exceptions import NoActivePremium
 from .helpers import escape_markdown
-from .premium import get_subscription_keyboard
+from .premium import get_sale_text, get_subscription_keyboard
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -96,19 +96,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         )
         reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
 
-        suffix = "".join(
-            [
-                "Premium is on SALE right NOW:\n",
-                "\n".join(
-                    (
-                        f"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~"
-                        f"\-\> {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
-                    )
-                    for premium_period, product in periods_to_products.items()
-                ),
-                "\n\nWould you like to buy premium?",
-            ]
-        )
+        suffix = get_sale_text(periods_to_products)
 
         return BotMessage(
             chat_id=chat.id,
