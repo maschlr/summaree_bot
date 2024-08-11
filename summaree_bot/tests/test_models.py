@@ -2,7 +2,7 @@ import random
 
 from sqlalchemy import select
 
-from summaree_bot.models import EmailToken, Language, TelegramChat, TelegramUser, User
+from summaree_bot.models import Language, TelegramChat, TelegramUser
 
 from .common import Common
 
@@ -24,8 +24,7 @@ class TestTelegramChat(Common):
     def _generate_users(self, count: int) -> None:
         self._generate_tg_users(count)
         with self.Session.begin() as session:  # type: ignore
-            for i, tg_user in enumerate(self.tg_users):
-                tg_user.user = User(email=f"user{i}@example.org", email_token=EmailToken())
+            for tg_user in self.tg_users:
                 session.add(tg_user)
 
     def test_00_no_chat_record(self):
@@ -55,30 +54,3 @@ class TestTelegramChat(Common):
             user_ids_in_chat = {user.id for user in result_chat.users}
             for user in result_users:
                 self.assertIn(user.id, user_ids_in_chat)
-
-    def test_02_create_user_with_token(self):
-        self._generate_users(2)
-
-        stmt_user = select(User)
-        with self.Session.begin() as session:
-            users = session.scalars(stmt_user).all()
-            self.assertFalse(any(user.email_token.active for user in users))
-            self.assertTrue(
-                all(isinstance(user.email_token.value, str) and len(user.email_token.value) for user in users)
-            )
-
-    def test_03_create_user_with_referral(self):
-        self._generate_users(3)
-
-        # first tg_user referrs the other two
-        with self.Session.begin() as session:
-            referrer_user, *referred_users = session.scalars(select(User)).all()
-            for user in referred_users:
-                user.referrer = referrer_user
-
-        with self.Session.begin() as session:
-            session.add(referrer_user)
-            session.add_all(referred_users)
-            for user in referred_users:
-                self.assertEqual(user.referrer, referrer_user)
-            self.assertEqual(referrer_user.referrals, referred_users)

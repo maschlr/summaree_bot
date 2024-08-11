@@ -1,7 +1,6 @@
 from .models import (
     Base,
     BotMessage,
-    EmailToken,
     Invoice,
     InvoiceStatus,
     Language,
@@ -16,7 +15,6 @@ from .models import (
     Topic,
     TopicTranslation,
     Transcript,
-    User,
 )
 
 __all__ = [
@@ -24,8 +22,6 @@ __all__ = [
     "BotMessage",
     "Language",
     "Summary",
-    "User",
-    "EmailToken",
     "TelegramChat",
     "TelegramUser",
     "Topic",

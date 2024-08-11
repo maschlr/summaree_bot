@@ -14,7 +14,7 @@ from telegram.ext import ContextTypes
 from ..integrations.openai import summary_prompt_file_path
 from ..models import Summary, TelegramUser
 from ..models.session import DbSessionContext, session_context
-from . import BotDocument, BotMessage
+from . import AdminChannelMessage, BotDocument
 
 
 async def dataset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -75,7 +75,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @session_context
-def _stats(update: Update, context: DbSessionContext) -> BotMessage:
+def _stats(update: Update, context: DbSessionContext) -> AdminChannelMessage:
     if update.message is None:
         raise ValueError("Update needs a message")
 
@@ -105,8 +105,7 @@ def _stats(update: Update, context: DbSessionContext) -> BotMessage:
 
     table.add_row(total_row_data)
 
-    msg = BotMessage(
-        chat_id=update.message.chat_id,
+    msg = AdminChannelMessage(
         text=f"```{table}```",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
@@ -136,24 +135,84 @@ def _top(update: Update, context: DbSessionContext):
             continue
         table.add_row([f"{user.username or user.first_name} ({user.id})", count])
 
-    msg = BotMessage(
-        chat_id=update.message.chat_id,
+    msg = AdminChannelMessage(
         text=f"```{table}```",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return msg
 
 
-async def create_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO
-    pass
+async def activate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Asynchronous handler for the /activate command."""
+    msg = _activate_referral_code(update, context)
+    await msg.send(context.bot)
+
+
+@session_context
+def _activate_referral_code(update: Update, context: DbSessionContext) -> AdminChannelMessage:
+    """Synchronous part of the /activate command."""
+    session = context.db_session
+    stmt = (
+        select(TelegramUser)
+        .where(TelegramUser.username == context.args[0])
+        .where(TelegramUser.referral_token_active.is_(False))
+    )
+    user = session.execute(stmt).scalar_one_or_none()
+    if user is None:
+        return AdminChannelMessage(
+            text=(
+                f"User {context.args[0]} not found or referral code already activated. "
+                "Use /list to see all active referral codes."
+            )
+        )
+    user.referral_token_active = True
+
+    return AdminChannelMessage(text=f"Referral code activated for {user.username}")
 
 
 async def list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO
-    pass
+    """Handler for the /list command to list all active referral codes."""
+    msg = _list_referral_codes(update, context)
+    await msg.send(context.bot)
 
 
-async def delete_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO
-    pass
+@session_context
+def _list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> AdminChannelMessage:
+    """Synchronous part of the /list command to list all active referral codes."""
+    session = context.db_session
+
+    stmt = select(TelegramUser).where(TelegramUser.referral_token_active)
+    users = session.execute(stmt).scalars().all()
+
+    prefix = "Active referral codes:\n"
+    body = "\n".join([f"- {user.username or user.first_name} ({user.id}): {user.referral_url}" for user in users])
+
+    msg = AdminChannelMessage(
+        text=prefix + body,
+    )
+    return msg
+
+
+async def deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Asynchronous handler for the /deactivate command."""
+    msg = _deactivate_referral_code(update, context)
+    await msg.send(context.bot)
+
+
+def _deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> AdminChannelMessage:
+    """Syncronous part of the /deactivate command"""
+    session = context.db_session
+    stmt = (
+        select(TelegramUser).where(TelegramUser.username == context.args[0]).where(TelegramUser.referral_token_active)
+    )
+    user = session.execute(stmt).scalar_one_or_none()
+    if user is None:
+        return AdminChannelMessage(
+            text=(
+                f"User {context.args[0]} not found or referral code not active. "
+                "Use /list to see all active referral codes."
+            )
+        )
+    user.referral_token_active = False
+
+    return AdminChannelMessage(text=f"Referral code activated for {user.username}")

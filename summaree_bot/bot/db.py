@@ -3,7 +3,7 @@ from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from ..models import EmailToken, Language, TelegramChat, TelegramUser, User
+from ..models import Language, TelegramChat, TelegramUser
 from ..models.session import Session, session_context
 from .helpers import AdminChannelMessage
 
@@ -29,7 +29,6 @@ def ensure_chat(fnc):
                 "is_bot",
             ]
             tg_user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in attrs}
-            tg_user_kwargs["user"] = User(email_token=EmailToken())
 
             tg_user = TelegramUser(**tg_user_kwargs)
             session.add(tg_user)

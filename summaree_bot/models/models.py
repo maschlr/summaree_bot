@@ -1,5 +1,6 @@
 import datetime as dt
 import enum
+import os
 import secrets
 from datetime import datetime
 from typing import List, Optional
@@ -10,6 +11,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, rela
 from sqlalchemy.types import BigInteger
 from telegram.ext import ContextTypes
 
+from ..utils import url
 from .session import Session as SessionContext
 
 
@@ -37,42 +39,6 @@ chats_to_users_rel = Table(
     Column("user_id", ForeignKey("telegram_user.id"), primary_key=True),
     Column("chat_id", ForeignKey("telegram_chat.id"), primary_key=True),
 )
-
-
-class User(Base):
-    __tablename__ = "users"
-    # TODO:
-    # - merge User into TelegramUser
-    # - find all occurences of User in code and migrate them
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    telegram_user_id: Mapped[int] = mapped_column(
-        "telegram_user_id",
-        BigInteger,
-        ForeignKey("telegram_user.id", ondelete="CASCADE"),
-    )
-    telegram_user: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="user")
-    email: Mapped[Optional[str]]
-    email_token: Mapped["EmailToken"] = relationship(back_populates="user")
-
-    referral_token: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4), unique=True)
-
-    # https://docs.sqlalchemy.org/en/20/orm/self_referential.html#self-referential
-    referrer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
-    referrals: Mapped[List["User"]] = relationship("User", back_populates="referrer")
-    referrer: Mapped["User"] = relationship("User", back_populates="referrals", remote_side=[id])
-
-
-class EmailToken(Base):
-    __tablename__ = "token"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    value: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4))
-    active: Mapped[bool] = mapped_column(default=False)
-    expires_at: Mapped[Optional[datetime]]
-
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    user: Mapped["User"] = relationship(back_populates="email_token")
 
 
 class Language(Base):
@@ -126,13 +92,28 @@ class TelegramUser(Base):
     language_code: Mapped[Optional[str]]
     is_premium: Mapped[Optional[bool]]
 
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="telegram_user")
-
     # use str of Model here to avoid linter warning
     chats: Mapped[set["TelegramChat"]] = relationship(secondary=chats_to_users_rel, back_populates="users")
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="tg_user")
     summaries: Mapped[List["Summary"]] = relationship(back_populates="tg_user")
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="tg_user")
+
+    referral_token: Mapped[str] = mapped_column(default=lambda: secrets.token_urlsafe(4), unique=True)
+    referral_token_active: Mapped[bool] = mapped_column(default=False)
+    # https://docs.sqlalchemy.org/en/20/orm/self_referential.html#self-referential
+    referred_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_user.id"))
+    referred_by: Mapped["TelegramUser"] = relationship("TelegramUser", back_populates="referrals", remote_side=[id])
+
+    referrals: Mapped[List["TelegramUser"]] = relationship("TelegramUser", back_populates="referred_by")
+
+    @property
+    def referral_url(self) -> str:
+        """Generate a referral URL for a user."""
+        callback_data = url.encode(["ref", self.referral_token])
+        bot_name = os.getenv("BOT_NAME")
+        if bot_name is None:
+            raise ValueError("Environment variable BOT_NAME not set.")
+        return f"https://t.me/{bot_name}?start={callback_data.decode('ascii')}"
 
 
 class TelegramChat(Base):

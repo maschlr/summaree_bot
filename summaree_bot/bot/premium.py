@@ -10,7 +10,6 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..models import (
-    EmailToken,
     Invoice,
     InvoiceStatus,
     PremiumPeriod,
@@ -20,11 +19,10 @@ from ..models import (
     SubscriptionType,
     TelegramChat,
     TelegramUser,
-    User,
 )
 from ..models.session import DbSessionContext
 from ..utils import url
-from . import BotInvoice, BotMessage
+from . import AdminChannelMessage, BotInvoice, BotMessage
 from .db import ensure_chat, session_context
 from .helpers import escape_markdown
 
@@ -45,6 +43,8 @@ PAYMENT_PAYLOAD_TOKEN = os.getenv("PAYMENT_PAYLOAD_TOKEN", "Configure me in .env
 @session_context
 @ensure_chat
 def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
+    # TODO: this is currently not used / added to the commands
+    # can this be removed?
     if update is None or update.message is None or update.effective_user is None:
         raise ValueError("update/message/user is None")
     # case 1: telegram_user has no user -> /register first
@@ -65,31 +65,29 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
         )
     elif not context.args:
         # case 2: no context.args -> list token and referred users
-        n_referrals = len(tg_user.user.referrals)
+        n_referrals = len(tg_user.referrals)
         return BotMessage(
             chat_id=chat_id,
-            text=escape_markdown(
-                f"👥 Your referral token is `{tg_user.user.referral_token}`.\n\n"
-                f"💫 You have referred {n_referrals} users. "
-                f"In total, you have received {n_referrals*7} days of free premium! 💸"
+            text=(
+                f"👥 Your referral token url is `{tg_user.referral_url}`\.\n\n"
+                f"💫 You have referred {n_referrals} users\."
             ),
-            parse_mode=ParseMode.MARKDOWN_V2,
         )
     # case 3: context.args[0] is a token -> add referral
     else:
-        stmt = select(User).where(User.referral_token == context.args[0])
+        stmt = select(TelegramUser).where(TelegramUser.referral_token == context.args[0])
         referrer = session.execute(stmt).scalar_one_or_none()
         if referrer is None:
             return BotMessage(
                 chat_id=chat_id, text="🤷‍♀️🤷‍♂️ This referral token is not valid.", parse_mode=ParseMode.MARKDOWN_V2
             )
         else:
-            tg_user.user.referrer = referrer
+            tg_user.referrer = referrer
             return BotMessage(
                 chat_id=chat_id,
                 text=(
                     "👍 You have successfully used this referral token. "
-                    "You and the referrer will both receive one week of premium for free! 💫💸"
+                    "You will receive one week of premium for free! 💫💸"
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
@@ -173,10 +171,6 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
     #  -> check if user is in database, if not -> create
     #  -> ask user if subscription should be bought
     else:
-        tg_user = session.get(TelegramUser, update.effective_user.id)
-        if not tg_user.user:
-            user = User(telegram_user=tg_user, email_token=EmailToken())
-            session.add(user)
         reply_markup = get_subscription_keyboard(context)
         reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
 
@@ -358,3 +352,53 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _successful_payment_callback(update, context)
     await bot_msg.send(context.bot)
+
+
+def referral(update: Update, context: DbSessionContext, token: str) -> BotMessage:
+    """Generate BotMessage for start handler with referral token."""
+    session = context.db_session
+
+    tg_user = session.get(TelegramUser, update.effective_user.id)
+    # check if user already has (past or active) premium subscription
+    if tg_user.subscriptions:
+        return BotMessage(
+            chat_id=update.message.chat_id,
+            text="You have already used premium. You are not eligible for a referral.",
+        )
+
+    # check if token is valid/active
+    stmt = select(TelegramUser).where(TelegramUser.referral_token == token).where(TelegramUser.referral_token_active)
+    referred_by_user = session.execute(stmt).scalar_one_or_none()
+    if referred_by_user is None:
+        return BotMessage(
+            chat_id=update.message.chat_id,
+            text="😵‍💫 Sorry, the referral token is invalid or expired.",
+        )
+    tg_user.referred_by = referred_by_user
+
+    # create 14 day trial subscription
+    start_date = dt.datetime.now(dt.UTC)
+    end_date = start_date + dt.timedelta(days=14)
+    subscription = Subscription(
+        tg_user=tg_user,
+        chat_id=update.effective_chat.id,
+        start_date=start_date,
+        end_date=end_date,
+        status=SubscriptionStatus.active,
+        type=SubscriptionType.reffered,
+        active=True,
+    )
+    session.add(subscription)
+
+    user_msg = BotMessage(
+        text=(
+            "🥳 You have successfully activated your 14 day trial premium subscription"
+            f"(ends at {end_date.strftime('%x')})"
+        ),
+        chat_id=update.effective_chat.id,
+    )
+    admin_group_msg = AdminChannelMessage(
+        text=f"New user {tg_user.username or tg_user.first_name} activated 14 day trial premium subscription"
+    )
+
+    return [user_msg, admin_group_msg]

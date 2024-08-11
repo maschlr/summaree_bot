@@ -13,7 +13,14 @@ from telegram.ext import (
     filters,
 )
 
-from summaree_bot.bot.admin import dataset, stats, top
+from summaree_bot.bot.admin import (
+    activate_referral_code,
+    dataset,
+    deactivate_referral_code,
+    list_referral_codes,
+    stats,
+    top,
+)
 from summaree_bot.bot.audio import transcribe_and_summarize
 from summaree_bot.bot.db import chat_migration
 from summaree_bot.bot.error import (
@@ -86,6 +93,9 @@ def main() -> None:
     application.add_handler(CommandHandler("dataset", dataset, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("stats", stats, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("top", top, filters.Chat(int(admin_chat_id))))
+    application.add_handler(CommandHandler("list", list_referral_codes, filters.Chat(int(admin_chat_id))))
+    application.add_handler(CommandHandler("activate", activate_referral_code, filters.Chat(int(admin_chat_id))))
+    application.add_handler(CommandHandler("deactivate", deactivate_referral_code, filters.Chat(int(admin_chat_id))))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))
