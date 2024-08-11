@@ -41,6 +41,9 @@ chats_to_users_rel = Table(
 
 class User(Base):
     __tablename__ = "users"
+    # TODO:
+    # - merge User into TelegramUser
+    # - find all occurences of User in code and migrate them
 
     id: Mapped[int] = mapped_column(primary_key=True)
     telegram_user_id: Mapped[int] = mapped_column(
@@ -290,6 +293,7 @@ class Subscription(Base):
         with SessionContext.begin() as session:
             for subscription in session.execute(stmt).scalars():
                 subscription.status = SubscriptionStatus.expired
+                subscription.chat.language = Language.get_default_language(session)
 
 
 class PaymentProvider(enum.Enum):

@@ -142,3 +142,18 @@ def _top(update: Update, context: DbSessionContext):
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     return msg
+
+
+async def create_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # TODO
+    pass
+
+
+async def list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # TODO
+    pass
+
+
+async def delete_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # TODO
+    pass
