@@ -49,7 +49,7 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
     chat_id = update.message.chat.id
     # case 1: referral token is not active
     if not tg_user.referral_token_active:
-        text = r"✋💸 In order to use referrals, your token needs to be activated\. Please contact `/support`\."
+        text = "✋💸 In order to use referrals, your token needs to be activated\.\n Please contact `/support`\."
         return BotMessage(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN_V2)
     # case 2: list referrals and the total amount of stars
     else:
