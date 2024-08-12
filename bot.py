@@ -123,6 +123,7 @@ def main() -> None:
     post_init_fncs = [["delete_my_commands"], ["set_my_commands", commands_to_set]]
 
     async def post_init(self):
+        os.environ["BOT_LINK"] = self.bot.link
         for fnc, *args in post_init_fncs:
             fnc = getattr(self.bot, fnc)
             await fnc(*args)

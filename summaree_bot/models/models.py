@@ -110,10 +110,8 @@ class TelegramUser(Base):
     def referral_url(self) -> str:
         """Generate a referral URL for a user."""
         callback_data = url.encode(["ref", self.referral_token])
-        bot_name = os.getenv("BOT_NAME")
-        if bot_name is None:
-            raise ValueError("Environment variable BOT_NAME not set.")
-        return f"https://t.me/{bot_name}?start={callback_data.decode('ascii')}"
+        bot_link = os.getenv("BOT_LINK")
+        return f"{bot_link}?start={callback_data.decode('ascii')}"
 
 
 class TelegramChat(Base):
