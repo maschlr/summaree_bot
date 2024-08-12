@@ -1,6 +1,7 @@
 from functools import wraps
 
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..models import Language, TelegramChat, TelegramUser
@@ -33,7 +34,9 @@ def ensure_chat(fnc):
             tg_user = TelegramUser(**tg_user_kwargs)
             session.add(tg_user)
 
-            context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New user: {tg_user.username}"))
+            context.bot_data["message_queue"].appendleft(
+                AdminChannelMessage(text=f"New user: {tg_user.md_link}", parse_mode=ParseMode.MARKDOWN_V2)
+            )
 
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
             # standard is english language
@@ -48,8 +51,8 @@ def ensure_chat(fnc):
                 users={tg_user},
             )
             session.add(chat)
-
-            context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New chat: {chat.title}"))
+            if chat.type != "private":
+                context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New chat: {chat.title}"))
             # TODO: emit welcome message
         elif tg_user not in chat.users:
             chat.users.add(tg_user)

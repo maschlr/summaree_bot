@@ -113,6 +113,22 @@ class TelegramUser(Base):
         bot_link = os.getenv("BOT_LINK")
         return f"{bot_link}?start={callback_data.decode('ascii')}"
 
+    @property
+    def tg_url(self) -> str:
+        """
+        Generate a Telegram URL for a user.
+        https://core.telegram.org/bots/api#formatting-options
+        """
+        return f"tg://user?id={self.id}"
+
+    @property
+    def md_link(self) -> str:
+        """
+        Generate a markdown link for a user.
+        https://core.telegram.org/bots/api#markdownv2-style
+        """
+        return f"[{self.username or self.first_name}]({self.tg_url})"
+
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"

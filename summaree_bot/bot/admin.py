@@ -15,6 +15,7 @@ from ..integrations.openai import summary_prompt_file_path
 from ..models import Summary, TelegramUser
 from ..models.session import DbSessionContext, session_context
 from . import AdminChannelMessage, BotDocument
+from .helpers import escape_markdown
 
 
 async def dataset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -167,7 +168,7 @@ def _activate_referral_code(update: Update, context: DbSessionContext) -> AdminC
         )
     user.referral_token_active = True
 
-    return AdminChannelMessage(text=f"Referral code activated for {user.username}")
+    return AdminChannelMessage(text=f"Referral code activated for {user.md_link}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -186,10 +187,11 @@ def _list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if users:
         prefix = "Active referral codes:\n"
-        body = "\n".join([f"- {user.username or user.first_name} ({user.id}): {user.referral_url}" for user in users])
+        body = "\n".join([f"\- {user.md_link}: {escape_markdown(user.referral_url)}" for user in users])
 
         msg = AdminChannelMessage(
             text=prefix + body,
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
     else:
         msg = AdminChannelMessage(text="No active referral codes found.")
