@@ -184,12 +184,15 @@ def _list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     stmt = select(TelegramUser).where(TelegramUser.referral_token_active)
     users = session.execute(stmt).scalars().all()
 
-    prefix = "Active referral codes:\n"
-    body = "\n".join([f"- {user.username or user.first_name} ({user.id}): {user.referral_url}" for user in users])
+    if users:
+        prefix = "Active referral codes:\n"
+        body = "\n".join([f"- {user.username or user.first_name} ({user.id}): {user.referral_url}" for user in users])
 
-    msg = AdminChannelMessage(
-        text=prefix + body,
-    )
+        msg = AdminChannelMessage(
+            text=prefix + body,
+        )
+    else:
+        msg = AdminChannelMessage(text="No active referral codes found.")
     return msg
 
 
@@ -199,6 +202,7 @@ async def deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT
     await msg.send(context.bot)
 
 
+@session_context
 def _deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> AdminChannelMessage:
     """Syncronous part of the /deactivate command"""
     session = context.db_session
@@ -215,4 +219,4 @@ def _deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     user.referral_token_active = False
 
-    return AdminChannelMessage(text=f"Referral code activated for {user.username}")
+    return AdminChannelMessage(text=f"Referral code deactivated for {user.username}")
