@@ -366,8 +366,13 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     commmands = await context.bot.get_my_commands()
     bot_msg = BotMessage(
         chat_id=update.message.chat_id,
-        text="Available commands are:\n"
-        + "\n".join(f"/{command.command} - {command.description}" for command in commmands),
+        text="\n".join(
+            [
+                "Send me a voice message or forward a voice message from another chat to receive a summary.\n",
+                "Other available commands are:",
+                "\n".join(f"/{command.command} - {command.description}" for command in commmands),
+            ]
+        ),
     )
     await bot_msg.send(context.bot)
 

@@ -29,9 +29,10 @@ from summaree_bot.bot.error import (
     invalid_button_handler,
 )
 from summaree_bot.bot.misc import dispatch_callback, process_message_queue
-from summaree_bot.bot.premium import (  # referral_handler,
+from summaree_bot.bot.premium import (
     precheckout_callback,
     premium_handler,
+    referral_handler,
     successful_payment_callback,
 )
 from summaree_bot.bot.user import (
@@ -78,10 +79,9 @@ def main() -> None:
         ),
         (help_handler, "help", "Show help message"),
         (support, "support", "Get support"),
+        (premium_handler, "premium", "Manage premium features"),
         (paysupport, "paysupport", "Get support for payments"),
         (terms, "terms", "Show terms of service"),
-        # (register, "register", "Register a new email address"),
-        # (activate, "activate", "Activate a token"),
     ):
         application.add_handler(CommandHandler(command, func))
         bot_command: BotCommand = BotCommand(command, description)
@@ -96,6 +96,7 @@ def main() -> None:
     application.add_handler(CommandHandler("list", list_referral_codes, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("activate", activate_referral_code, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("deactivate", deactivate_referral_code, filters.Chat(int(admin_chat_id))))
+    application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))

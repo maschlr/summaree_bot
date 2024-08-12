@@ -24,7 +24,6 @@ from ..models.session import DbSessionContext
 from ..utils import url
 from . import AdminChannelMessage, BotInvoice, BotMessage
 from .db import ensure_chat, session_context
-from .helpers import escape_markdown
 
 __all__ = [
     "premium_handler",
@@ -43,57 +42,35 @@ PAYMENT_PAYLOAD_TOKEN = os.getenv("PAYMENT_PAYLOAD_TOKEN", "Configure me in .env
 @session_context
 @ensure_chat
 def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
-    # TODO: this is currently not used / added to the commands
-    # can this be removed?
     if update is None or update.message is None or update.effective_user is None:
         raise ValueError("update/message/user is None")
-    # case 1: telegram_user has no user -> /register first
     session = context.db_session
     tg_user = session.get(TelegramUser, update.effective_user.id)
     chat_id = update.message.chat.id
-    if tg_user is None or tg_user.user is None:
-        msg = escape_markdown("✋💸 In order to use referrals, please `/register` your email first. 📧")
-        return BotMessage(chat_id=chat_id, text=msg, parse_mode=ParseMode.MARKDOWN_V2)
-    elif not tg_user.user.email_token.active:
-        return BotMessage(
-            chat_id=chat_id,
-            text=escape_markdown(
-                "✋ Your email is not verified. Please check your inbox and click the link in the email. "
-                "Use `/register` to re-send email or change email address."
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
-    elif not context.args:
-        # case 2: no context.args -> list token and referred users
+    # case 1: referral token is not active
+    if not tg_user.referral_token_active:
+        text = r"✋💸 In order to use referrals, your token needs to be activated\. Please contact `/support`\."
+        return BotMessage(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN_V2)
+    # case 2: list referrals and the total amount of stars
+    else:
         n_referrals = len(tg_user.referrals)
+        n_stars = 0
+        for referred_user in tg_user.referrals:
+            star_invoices = (invoice for invoice in referred_user.invoices if invoice.product.currency == "XTR")
+            for invoice in star_invoices:
+                n_stars += invoice.total_amount
+
         return BotMessage(
             chat_id=chat_id,
             text=(
-                f"👥 Your referral token url is `{tg_user.referral_url}`\.\n\n"
-                f"💫 You have referred {n_referrals} users\."
+                f"👥 Your referral token url is {tg_user.referral_url}\n\n"
+                f"💫 You have referred {n_referrals} users. They have paid a total of {n_stars} ⭐"
             ),
         )
-    # case 3: context.args[0] is a token -> add referral
-    else:
-        stmt = select(TelegramUser).where(TelegramUser.referral_token == context.args[0])
-        referrer = session.execute(stmt).scalar_one_or_none()
-        if referrer is None:
-            return BotMessage(
-                chat_id=chat_id, text="🤷‍♀️🤷‍♂️ This referral token is not valid.", parse_mode=ParseMode.MARKDOWN_V2
-            )
-        else:
-            tg_user.referrer = referrer
-            return BotMessage(
-                chat_id=chat_id,
-                text=(
-                    "👍 You have successfully used this referral token. "
-                    "You will receive one week of premium for free! 💫💸"
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
 
 
 async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Async handler for listing the referrals"""
     bot_msg = _referral_handler(update, context)
     await bot_msg.send(context.bot)
 
@@ -149,7 +126,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
 
     stmt = (
         select(Subscription)
-        .where(Subscription.chat_id == chat.id)
+        .where(Subscription.tg_user_id == update.effective_user.id)
         .where(Subscription.status.in_([SubscriptionStatus.active, SubscriptionStatus.extended]))
         .order_by(Subscription.end_date.asc())
     )
@@ -160,18 +137,17 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         subscription_msg = "🌟 You have active subscription(s): \n"
         for subscription in subscriptions:
             subscription_msg += (
-                f"- 📅 {subscription.start_date} - {subscription.end_date}: "
-                f"({subscription.status} @ chat {subscription.chat.title or subscription.chat.username})\n"
+                f"- 📅 {subscription.start_date.strftime('%x')} - {subscription.end_date.strftime('%x')} "
+                f"@ chat {subscription.chat.title or subscription.chat.username}\n"
             )
 
         subscription_msg += "\nWould you like to extend your subscription?"
         reply_markup = get_subscription_keyboard(context, subscriptions[0].id)
         return BotMessage(chat_id=update.effective_chat.id, text=subscription_msg, reply_markup=reply_markup)
-    # case 3: chat has no active subscription
+    # case 2: chat has no active subscription
     #  -> check if user is in database, if not -> create
     #  -> ask user if subscription should be bought
     else:
-        reply_markup = get_subscription_keyboard(context)
         reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
 
         text = r"You currently have no active subscription\. " + get_sale_text(periods_to_products)
@@ -189,8 +165,8 @@ def get_sale_text(periods_to_products: Mapping[PremiumPeriod, Product]) -> str:
             "Premium is on SALE right NOW:\n",
             "\n".join(
                 (
-                    f"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~ "
-                    f"➡️ {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
+                    rf"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~ "
+                    rf"➡️ {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
                 )
                 for premium_period, product in periods_to_products.items()
             ),
