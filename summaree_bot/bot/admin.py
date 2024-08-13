@@ -120,24 +120,24 @@ def _stats(update: Update, context: DbSessionContext) -> AdminChannelMessage:
     usage_df = pd.DataFrame(index=dt_index, data={"Summaries": summary_count, "Users": user_count})
     from_date = dt.datetime.now(dt.UTC) - dt.timedelta(days=30)
     daily_data = usage_df[from_date:].sort_index(ascending=False)
-    ax_daily = daily_data.plot(title="Summaries and active users per day", kind="barh")
-    ax_daily.set_yticklabels([d.strftime("%Y-%m-%d") for d in daily_data.index])
-    ax_daily.set_xlabel("Count")
-    ax_daily.set_ylabel("Date")
-
-    daily_buffer = io.BytesIO()
-    ax_daily.get_figure().savefig(daily_buffer)
-
     monthly_data = usage_df.resample("ME").sum().sort_index(ascending=False)
-    ax_monthly = monthly_data.plot(title="Summaries and active users per month", kind="barh")
-    ax_monthly.set_yticklabels([d.strftime("%Y-%m") for d in monthly_data.index])
-    ax_monthly.set_xlabel("Count")
-    ax_monthly.set_ylabel("Date")
 
-    monthly_buffer = io.BytesIO()
-    ax_monthly.get_figure().savefig(monthly_buffer)
+    # dataset, title, strftime
+    plot_data = (
+        [daily_data, "Summaries and active users per day", "%Y-%m-%d"],
+        [monthly_data, "Summaries and active users per month", "%Y-%m"],
+    )
 
-    media = [InputMediaPhoto(b.getvalue()) for b in [daily_buffer, monthly_buffer]]
+    media = []
+    for data, title, strftime in plot_data:
+        ax = data.plot(title=title, kind="barh")
+        ax.set_yticklabels([d.strftime(strftime) for d in data.index])
+        ax.set_xlabel("Count")
+        ax.set_ylabel("Date")
+        buffer = io.BytesIO()
+        ax.get_figure().savefig(buffer, bbox_inches="tight")
+        media.append(InputMediaPhoto(buffer.getvalue()))
+        buffer.close()
 
     msg = AdminChannelMessage(
         text=f"```{table}```",
@@ -147,6 +147,7 @@ def _stats(update: Update, context: DbSessionContext) -> AdminChannelMessage:
 
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Async handler for getting the /top users"""
     msg = _top(update, context)
     await msg.send(context.bot)
 
