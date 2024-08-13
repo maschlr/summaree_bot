@@ -7,7 +7,7 @@ from typing import Any, Coroutine, cast
 import magic
 from sqlalchemy import extract
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ChatAction
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
 from ..integrations import (
@@ -20,7 +20,7 @@ from ..integrations import (
 )
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
-from ..models import Language, Summary, TelegramChat, Transcript
+from ..models import Language, Summary, TelegramChat, TelegramUser, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotMessage
 from .helpers import escape_markdown
@@ -131,6 +131,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
+        user = session.get(TelegramUser, update.effective_user.id)
 
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
@@ -177,10 +178,8 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     bot_response_msg = bot_response_msg_task.result()
 
     new_summary_msg = AdminChannelMessage(
-        text=(
-            f"📝 New summary created in chat {update.effective_chat.id} "
-            f"by user {update.effective_user.username or update.effective_user.first_name} ({update.effective_user.id})"
-        )
+        text=(f"📝 New summary created in chat {update.effective_chat.id} " f"by user {user.md_link}"),
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
     async with asyncio.TaskGroup() as tg:
         tg.create_task(start_message.delete())
