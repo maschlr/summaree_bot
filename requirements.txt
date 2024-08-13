@@ -9,3 +9,5 @@ Jinja2
 dnspython
 python-magic
 prettytable
+pandas
+matplotlib

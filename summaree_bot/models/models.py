@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 
 import sqlalchemy
-from sqlalchemy import Column, ForeignKey, MetaData, Table, select
+from sqlalchemy import Column, Date, ForeignKey, MetaData, Table, cast, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.types import BigInteger
 from telegram.ext import ContextTypes
@@ -209,6 +209,21 @@ class Summary(Base):
 
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="summary")
     topics: Mapped[List["Topic"]] = relationship(back_populates="summary")
+
+    @classmethod
+    def get_usage_stats(cls, session: Session) -> dict:
+        """Get summary usage statistics: daily count and unique users"""
+        query = (
+            session.query(
+                cast(cls.created_at, Date).label("date"),
+                func.count(cls.id).label("summary_count"),
+                func.count(func.distinct(cls.tg_user_id)).label("user_count"),
+            )
+            .group_by(cast(cls.created_at, Date))
+            .order_by(cast(cls.created_at, Date))
+        )
+
+        return query.all()
 
 
 class Topic(Base):

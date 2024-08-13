@@ -1,3 +1,4 @@
+import asyncio
 import bz2
 import datetime as dt
 import io
@@ -5,9 +6,10 @@ import json
 import os
 from datetime import datetime, timedelta
 
+import pandas as pd
 import prettytable as pt
 from sqlalchemy import func, select
-from telegram import Update
+from telegram import InputMediaPhoto, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
@@ -71,8 +73,10 @@ def _dataset(update: Update, context: DbSessionContext) -> BotDocument:
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = _stats(update, context)
-    await msg.send(context.bot)
+    msg, media = _stats(update, context)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(msg.send(context.bot))
+        tg.create_task(context.bot.send_media_group(msg.chat_id, media))
 
 
 @session_context
@@ -84,6 +88,7 @@ def _stats(update: Update, context: DbSessionContext) -> AdminChannelMessage:
     summaries = session.scalars(select(Summary)).all()
 
     users = set(filter(lambda user: user is not None, (s.tg_user_id for s in summaries)))
+    users = {s.tg_user_id for s in summaries if s.tg_user_id is not None}
     total_row_data = ["Total", len(users), len(summaries)]
 
     table = pt.PrettyTable(["Time", "Users", "Summaries"])
@@ -100,17 +105,45 @@ def _stats(update: Update, context: DbSessionContext) -> AdminChannelMessage:
     }
 
     for row_label, row_timespan in label_to_datetime.items():
-        row_summaries = list(filter(lambda s: s.created_at > row_timespan, summaries))
-        row_users = set(filter(lambda user: user is not None, (s.tg_user_id for s in row_summaries)))
+        row_summaries = [s for s in summaries if s.created_at.replace(tzinfo=dt.UTC) >= row_timespan]
+        row_users = {s.tg_user_id for s in row_summaries if s.tg_user_id is not None}
         table.add_row([row_label, len(row_users), len(row_summaries)])
 
     table.add_row(total_row_data)
+
+    usage_stats = Summary.get_usage_stats(session)
+    # create two messages with plots
+    # 1. summaries per day/month
+    # 2. active users per day/month
+    date_index, summary_count, user_count = zip(*usage_stats, strict=True)
+    dt_index = pd.to_datetime(date_index, utc=True)
+    usage_df = pd.DataFrame(index=dt_index, data={"Summaries": summary_count, "Users": user_count})
+    from_date = dt.datetime.now(dt.UTC) - dt.timedelta(days=30)
+    daily_data = usage_df[from_date:].sort_index(ascending=False)
+    ax_daily = daily_data.plot(title="Summaries and active users per day", kind="barh")
+    ax_daily.set_yticklabels([d.strftime("%Y-%m-%d") for d in daily_data.index])
+    ax_daily.set_xlabel("Count")
+    ax_daily.set_ylabel("Date")
+
+    daily_buffer = io.BytesIO()
+    ax_daily.get_figure().savefig(daily_buffer)
+
+    monthly_data = usage_df.resample("ME").sum().sort_index(ascending=False)
+    ax_monthly = monthly_data.plot(title="Summaries and active users per month", kind="barh")
+    ax_monthly.set_yticklabels([d.strftime("%Y-%m") for d in monthly_data.index])
+    ax_monthly.set_xlabel("Count")
+    ax_monthly.set_ylabel("Date")
+
+    monthly_buffer = io.BytesIO()
+    ax_monthly.get_figure().savefig(monthly_buffer)
+
+    media = [InputMediaPhoto(b.getvalue()) for b in [daily_buffer, monthly_buffer]]
 
     msg = AdminChannelMessage(
         text=f"```{table}```",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
-    return msg
+    return msg, media
 
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
