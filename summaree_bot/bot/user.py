@@ -62,8 +62,6 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     if chat is None:
         raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
 
-    parse_mode = ParseMode.MARKDOWN_V2
-
     stmt = select(Language)
     languages = session.scalars(stmt).all()
     if not languages:
@@ -96,7 +94,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         return BotMessage(
             chat_id=chat.id,
             text=get_lang_msg(prefix, languages, suffix),
-            parse_mode=parse_mode,
+            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup,
         )
 
@@ -105,7 +103,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             "Example for English type: `/lang en`",
             "Para Español escribe `/lang es`",
             "Для Русского напишите `/lang ru`\n",
-            "Or choose press a button below:",
+            "Or choose a button below:",
         ]
     )
 
@@ -117,41 +115,37 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         if target_language := session.scalar(stmt):
             if chat.language != target_language:
                 chat.language = target_language
-                _msg = "".join(
-                    [
-                        "Language successfully set to: ",
-                        f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]",
-                    ]
-                )
+                lang_txt = f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]"
+                text = f"Language successfully set to: {lang_txt}"
                 return BotMessage(
                     chat_id=chat.id,
-                    text=get_lang_msg(
-                        _msg,
-                        [],
-                    ),
-                    parse_mode=parse_mode,
+                    text=text,
                 )
             else:
                 other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)
                 other_available_languages = session.scalars(other_available_languages_stmt).all()
-                answer = (
-                    "This language is already configured as the target language: "
+                lang_txt = escape_markdown(
                     f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n"
-                    "Other available languages are:\n\n"
+                )
+                answer = (
+                    f"This language is already configured as the target language: {lang_txt}"
+                    "Other available languages are:\n"
                 )
 
                 return BotMessage(
                     chat_id=chat.id,
                     text=get_lang_msg(answer, other_available_languages, example_suffix),
-                    parse_mode=parse_mode,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=_get_lang_inline_keyboard(update, context),
                 )
 
         else:
-            prefix = r"Unknown language\.\n Available languages are:\n\n"
+            prefix = "Unknown language\.\n Available languages are:\n"
             return BotMessage(
                 chat_id=chat.id,
                 text=get_lang_msg(prefix, languages, example_suffix),
-                parse_mode=parse_mode,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_markup=_get_lang_inline_keyboard(update, context),
             )
 
     except IndexError:
@@ -165,15 +159,15 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             text=get_lang_msg(
                 (
                     "Current language is: "
-                    f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n\n"
+                    f"{chat.language.flag_emoji} {chat.language.ietf_tag} \[{chat.language.name}\]\n\n"
                     "Your can either choose one of the languages below or "
                     "set your target language with `/lang` followed by the "
-                    "language short code from the following list.\n\n"
+                    "language short code from the following list:\n"
                 ),
                 languages,
                 example_suffix,
             ),
-            parse_mode=parse_mode,
+            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup,
         )
 
