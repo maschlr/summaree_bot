@@ -154,13 +154,13 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         # first page has only "Next >>" button to go to the next page, last page only "<< Previous" button
         # Give the user 4 options, not the one they already have
         reply_markup = _get_lang_inline_keyboard(update, context)
+        lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]")
         return BotMessage(
             chat_id=chat.id,
             text=get_lang_msg(
                 (
-                    "Current language is: "
-                    f"{chat.language.flag_emoji} {chat.language.ietf_tag} \[{chat.language.name}\]\n\n"
-                    "Your can either choose one of the languages below or "
+                    f"Current language is: {lang_txt}"
+                    "\n\nYour can either choose one of the languages below or "
                     "set your target language with `/lang` followed by the "
                     "language short code from the following list:\n"
                 ),
