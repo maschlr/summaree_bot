@@ -131,7 +131,12 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
-        user = session.get(TelegramUser, update.effective_user.id)
+        user = session.get(TelegramUser, update.effective_user.id)  #
+
+        new_summary_msg = AdminChannelMessage(
+            text=(f"📝 New summary created in chat {update.effective_chat.id} " f"by user {user.md_link}"),
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
 
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
@@ -177,10 +182,6 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     start_message = start_msg_task.result()
     bot_response_msg = bot_response_msg_task.result()
 
-    new_summary_msg = AdminChannelMessage(
-        text=(f"📝 New summary created in chat {update.effective_chat.id} " f"by user {user.md_link}"),
-        parse_mode=ParseMode.MARKDOWN_V2,
-    )
     async with asyncio.TaskGroup() as tg:
         tg.create_task(start_message.delete())
         tg.create_task(bot_response_msg.send(context.bot))
