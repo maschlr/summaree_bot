@@ -256,3 +256,18 @@ def _deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE
     user.referral_token_active = False
 
     return AdminChannelMessage(text=f"Referral code deactivated for {user.username}")
+
+
+async def get_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler for the /get_file command to get a file from the bot."""
+    file_id = context.args[0]
+    msg = BotDocument(chat_id=update.effective_chat.id, document=file_id)
+    await msg.send(context.bot)
+
+
+async def forward_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler for the /forward command to forward a message to the admin chat."""
+    chat_id, msg_id = context.args[0]
+    await context.application.bot.forward_message(
+        chat_id=update.effective_chat.id, from_chat_id=chat_id, message_id=msg_id
+    )

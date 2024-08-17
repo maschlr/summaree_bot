@@ -117,7 +117,6 @@ class BotDocument(BotResponse):
     reply_to_message_id: Optional[int] = None
     reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, ForceReply]] = None
     parse_mode: Optional[str] = None
-    thumb: Optional[Union[io.IOBase, pathlib.Path, str]] = None
     thumbnail: Optional[Union[io.IOBase, pathlib.Path, str]] = None
     disable_content_type_detection: Optional[bool] = None
     allow_sending_without_reply: Optional[bool] = None
