@@ -134,7 +134,10 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         user = session.get(TelegramUser, update.effective_user.id)  #
 
         new_summary_msg = AdminChannelMessage(
-            text=(f"📝 New summary created in chat {update.effective_chat.id} by user {user.md_link}"),
+            text=(
+                f"📝 New summary created in chat {escape_markdown(str(update.effective_chat.id))}"
+                f" by user {user.md_link}"
+            ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
 
