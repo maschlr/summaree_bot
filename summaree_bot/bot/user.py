@@ -44,10 +44,7 @@ __all__ = [
     "catch_all",
 ]
 
-MSG = (
-    "Send me a voice message and I will summarize it for you. "
-    "You can forward messages from other chats to me, even if they are in other apps."
-)
+FREE_LANGUAGE_IETF_TAGS = {"en", "es", "ru", "de"}
 
 
 @session_context
@@ -84,73 +81,18 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         )
         return _msg
 
-    if not chat.is_premium_active:
-        prefix = (
-            "Setting an output language different than english is a premium feature\. "
-            f"With premium active, you will be able to choose from {len(languages)} different languages:\n"
-        )
-        reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
-
-        suffix = get_sale_text(periods_to_products)
-
-        return BotMessage(
-            chat_id=chat.id,
-            text=get_lang_msg(prefix, languages, suffix),
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=reply_markup,
-        )
-
     example_suffix = "\n".join(
         [
-            "Example for English type: `/lang en`",
-            "Para Español escribe `/lang es`",
-            "Для Русского напишите `/lang ru`\n",
+            "Examples:",
+            "🇺🇸 For English type: `/lang en`",
+            "🇪🇸 Para Español escribe `/lang es`",
+            "🇩🇪 Für Deutch, schreibe `/lang es`",
+            "🇷🇺 Для Русского напишите `/lang ru`\n",
             "Or choose a button below:",
         ]
     )
 
-    try:
-        if context.args is None:
-            raise IndexError
-        target_language_ietf_tag = context.args[0].lower()
-        stmt = select(Language).where(Language.ietf_tag == target_language_ietf_tag)
-        if target_language := session.scalar(stmt):
-            if chat.language != target_language:
-                chat.language = target_language
-                lang_txt = f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]"
-                text = f"Language successfully set to: {lang_txt}"
-                return BotMessage(
-                    chat_id=chat.id,
-                    text=text,
-                )
-            else:
-                other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)
-                other_available_languages = session.scalars(other_available_languages_stmt).all()
-                lang_txt = escape_markdown(
-                    f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n"
-                )
-                answer = (
-                    f"This language is already configured as the target language: {lang_txt}"
-                    "Other available languages are:\n"
-                )
-
-                return BotMessage(
-                    chat_id=chat.id,
-                    text=get_lang_msg(answer, other_available_languages, example_suffix),
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=_get_lang_inline_keyboard(update, context),
-                )
-
-        else:
-            prefix = "Unknown language\.\n Available languages are:\n"
-            return BotMessage(
-                chat_id=chat.id,
-                text=get_lang_msg(prefix, languages, example_suffix),
-                parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=_get_lang_inline_keyboard(update, context),
-            )
-
-    except IndexError:
+    if not context.args:
         # Give the user an inline keyboard to choose from
         # make the inline keyboard pageable
         # first page has only "Next >>" button to go to the next page, last page only "<< Previous" button
@@ -171,6 +113,61 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup,
+        )
+
+    target_language_ietf_tag = context.args[0].lower()
+    if target_language_ietf_tag not in {lang.ietf_tag for lang in languages}:
+        prefix = "Unknown language\.\n Available languages are:\n"
+        return BotMessage(
+            chat_id=chat.id,
+            text=get_lang_msg(prefix, languages, example_suffix),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=_get_lang_inline_keyboard(update, context),
+        )
+
+    if not chat.is_premium_active and context.args and target_language_ietf_tag not in FREE_LANGUAGE_IETF_TAGS:
+        free_languages = [lang for lang in languages if lang.ietf_tag in FREE_LANGUAGE_IETF_TAGS]
+        free_language_str = ", ".join(
+            [f"{lang.flag_emoji} {escape_markdown(lang.name)}" for lang in free_languages[:-1]]
+        )
+        free_language_str += f" or {free_languages[-1].flag_emoji} {escape_markdown(free_languages[-1].name)}"
+        prefix = (
+            f"Setting an output language different than {free_language_str} is a premium feature\. "
+            f"With premium active, you will be able to choose from {len(languages)} different languages:\n"
+        )
+        reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
+
+        suffix = get_sale_text(periods_to_products)
+
+        return BotMessage(
+            chat_id=chat.id,
+            text=get_lang_msg(prefix, languages, suffix),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=reply_markup,
+        )
+
+    [target_language] = [lang for lang in languages if lang.ietf_tag == target_language_ietf_tag]
+    if chat.language != target_language:
+        chat.language = target_language
+        lang_txt = f"{target_language.flag_emoji} {target_language_ietf_tag} [{target_language.name}]"
+        text = f"Language successfully set to: {lang_txt}"
+        return BotMessage(
+            chat_id=chat.id,
+            text=text,
+        )
+    else:
+        other_available_languages_stmt = select(Language).where(Language.ietf_tag != target_language_ietf_tag)
+        other_available_languages = session.scalars(other_available_languages_stmt).all()
+        lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]\n")
+        answer = (
+            f"This language is already configured as the target language: {lang_txt}" "Other available languages are:\n"
+        )
+
+        return BotMessage(
+            chat_id=chat.id,
+            text=get_lang_msg(answer, other_available_languages, example_suffix),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=_get_lang_inline_keyboard(update, context),
         )
 
 
