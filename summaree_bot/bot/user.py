@@ -348,7 +348,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with asyncio.TaskGroup() as tg:
         for msg in msgs:
             tg.create_task(msg.send(context.bot))
-        tg.create_task(help_handler(update, context))
 
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
