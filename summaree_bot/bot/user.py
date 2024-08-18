@@ -20,7 +20,7 @@ except ImportError:
 from typing import Optional, Sequence, Union, cast
 
 from sqlalchemy import select
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
@@ -297,7 +297,9 @@ async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @session_context
 @ensure_chat
-def _start(update: Update, context: DbSessionContext) -> Union[BotMessage, Sequence[BotMessage]]:
+def _start(
+    update: Update, context: DbSessionContext, commands: Sequence[BotCommand]
+) -> Union[BotMessage, Sequence[BotMessage]]:
     if update.message is None or update.effective_user is None:
         raise ValueError("The update must contain a message and a user.")
 
@@ -311,12 +313,7 @@ def _start(update: Update, context: DbSessionContext) -> Union[BotMessage, Seque
         fnc = fnc_mapping[fnc_key]
         return fnc(update, context, *args)
 
-    user = update.effective_user
-    bot_msg = BotMessage(
-        chat_id=update.message.chat_id,
-        text=f"Hi {user.mention_html()}! " + MSG,
-        parse_mode=ParseMode.HTML,
-    )
+    bot_msg = _help_handler(update, context, commands)
     return bot_msg
 
 
@@ -326,7 +323,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         raise ValueError("The update must contain a message.")
 
     try:
-        msg_or_more = _start(update, context)
+        commands = await context.bot.get_my_commands()
+        msg_or_more = _start(update, context, commands)
         if isinstance(msg_or_more, BotMessage):
             msgs = [msg_or_more]
         else:
@@ -355,22 +353,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show help message."""
+    commands: Sequence[BotCommand] = await context.bot.get_my_commands()
+    bot_msg = _help_handler(update, context, commands)
+    await bot_msg.send(context.bot)
 
-    if update.message is None:
-        raise ValueError("The update must contain a message.")
 
-    commmands = await context.bot.get_my_commands()
+def _help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, commands: Sequence[BotCommand]) -> BotMessage:
+    keyboard_button = [InlineKeyboardButton("🦾 Show me a demo!", callback_data=dict(fnc="demo"))]
+    reply_markup = InlineKeyboardMarkup([keyboard_button])
+
+    long_line = (
+        "Send me a voice message and I will summarize it for you. "
+        "You can forward messages from other chats to me, even if they are in other apps.\n"
+    )
     bot_msg = BotMessage(
-        chat_id=update.message.chat_id,
+        chat_id=update.effective_message.chat_id,
         text="\n".join(
             [
-                "Send me a voice message or forward a voice message from another chat to receive a summary.\n",
+                f"Hi {update.effective_user.mention_html()}!",
+                long_line,
                 "Other available commands are:",
-                "\n".join(f"/{command.command} - {command.description}" for command in commmands),
+                "\n".join(f"/{command.command} - {command.description}" for command in commands),
             ]
         ),
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.HTML,
     )
-    await bot_msg.send(context.bot)
+    return bot_msg
 
 
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -448,7 +457,7 @@ async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # post the audio file
     bot = context.bot
     await bot.send_audio(chat_id=update.effective_chat.id, audio=os.getenv("DEMO_FILE_ID"))
-    reply = await update.message.reply_text(
+    reply = await update.effective_message.reply_text(
         "🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment.",
     )
     # wait one second
@@ -467,7 +476,7 @@ def _demo(update: Update, context: DbSessionContext) -> BotMessage:
     session = context.db_session
 
     stmt = select(Transcript).where(
-        Transcript.file_id == "CQACAgIAAxkBAAIQtGbCJwsmMcCUwuVsAdjcMWaONi7DAAK8YAACUYIQSsx-NdfadpBgNQQ"
+        Transcript.sha256_hash == "f5d703775735e608396db4a8bf088a4d581fcc06fda2ae38c7f0e793b9f1b6bd"
     )
     transcript = session.execute(stmt).scalar_one()
     msg = _get_summary_message(update, context, transcript.summary)

@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from .audio import elaborate, translate_transcript
 from .premium import payment_callback
-from .user import set_lang_callback
+from .user import demo, set_lang_callback
 
 __all__ = ["remove_inline_keyboard", "dispatch_callback"]
 
@@ -38,6 +38,7 @@ async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "set_lang": set_lang_callback,
         "elaborate": elaborate,
         "translate_transcript": translate_transcript,
+        "demo": demo,
     }
     fnc: Callable = callback_fnc_mapping[fnc_key]
     args: list = callback_data.get("args", [])
