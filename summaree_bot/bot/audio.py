@@ -95,9 +95,11 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
             _translate_topic(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
         ]
         session.add_all(translations)
-        msg = "\n".join(f"- {translation.target_text}" for translation in translations)
+        msg = "\n".join(
+            f"- {translation.target_text}" for translation in sorted(translations, key=lambda t: t.topic.order)
+        )
     else:
-        msg = "\n".join(f"- {topic.text}" for topic in summary.topics)
+        msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
     return BotMessage(chat_id=update.effective_chat.id, text=msg)
 

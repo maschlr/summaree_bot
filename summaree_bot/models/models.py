@@ -231,6 +231,8 @@ class Topic(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     text: Mapped[str]
+    order: Mapped[int]
+
     summary_id: Mapped[int] = mapped_column(
         ForeignKey("summary.id", ondelete="CASCADE"),
     )

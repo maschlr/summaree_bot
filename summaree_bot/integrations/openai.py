@@ -168,7 +168,7 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         created_at=created_at,
         finished_at=dt.datetime.now(dt.UTC),
         transcript=transcript,
-        topics=[Topic(text=text) for text in summary_data["topics"]],
+        topics=[Topic(text=text, order=i) for i, text in enumerate(summary_data["topics"], start=1)],
         tg_user_id=update.effective_user.id,
         tg_chat_id=update.effective_chat.id,
     )
