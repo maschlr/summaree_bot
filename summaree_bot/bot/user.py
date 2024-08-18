@@ -440,3 +440,12 @@ def _catch_all(update: Update, context: DbSessionContext) -> Optional[BotMessage
 async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if bot_msg := _catch_all(update, context):
         await bot_msg.send(context.bot)
+
+
+async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # TODO: implement this function
+    # post the audio file
+    # write "received" message
+    # wait one second
+    # write summary message
+    pass
