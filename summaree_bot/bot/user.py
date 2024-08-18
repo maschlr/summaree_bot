@@ -1,6 +1,7 @@
 import asyncio
 import binascii
 import json
+import os
 
 try:
     from itertools import batched
@@ -24,10 +25,11 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..logging import getLogger
-from ..models import Language, TelegramChat
+from ..models import Language, TelegramChat, Transcript
 from ..models.session import DbSessionContext
 from ..utils import url
 from . import BotMessage
+from .audio import _get_summary_message
 from .db import ensure_chat, session_context
 from .exceptions import NoActivePremium
 from .helpers import escape_markdown
@@ -443,9 +445,31 @@ async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO: implement this function
     # post the audio file
-    # write "received" message
+    bot = context.bot
+    await bot.send_audio(chat_id=update.effective_chat.id, audio=os.getenv("DEMO_FILE_ID"))
+    reply = await update.message.reply_text(
+        "🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment.",
+    )
     # wait one second
-    # write summary message
-    pass
+    await asyncio.sleep(1)
+
+    # get the transcript, delete the reply message
+    msg = _demo(update, context)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(reply.delete())
+        tg.create_task(msg.send(bot))
+
+
+@session_context
+@ensure_chat
+def _demo(update: Update, context: DbSessionContext) -> BotMessage:
+    session = context.db_session
+
+    stmt = select(Transcript).where(
+        Transcript.file_id == "CQACAgIAAxkBAAIQtGbCJwsmMcCUwuVsAdjcMWaONi7DAAK8YAACUYIQSsx-NdfadpBgNQQ"
+    )
+    transcript = session.execute(stmt).scalar_one()
+    msg = _get_summary_message(update, context, transcript.summary)
+
+    return msg
