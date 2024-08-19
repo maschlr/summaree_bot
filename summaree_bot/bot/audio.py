@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Coroutine, cast
 
 import magic
-from sqlalchemy import extract
+from sqlalchemy import extract, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
@@ -20,7 +20,7 @@ from ..integrations import (
 )
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
-from ..models import Language, Summary, TelegramChat, Transcript
+from ..models import Language, Summary, TelegramChat, TopicTranslation, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotMessage
 from .helpers import escape_markdown
@@ -91,10 +91,20 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
 
     en_lang = Language.get_default_language(session)
     if chat.language != en_lang:
-        translations = [
-            _translate_topic(update, context, target_language=chat.language, topic=topic) for topic in summary.topics
-        ]
-        session.add_all(translations)
+        stmt = (
+            select(TopicTranslation)
+            .where(TopicTranslation.target_lang == chat.language)
+            .where(TopicTranslation.topic.summary == summary)
+            .order_by(TopicTranslation.topic.order)
+        )
+
+        translations = session.scalars(stmt).all()
+        if not translations:
+            translations = [
+                _translate_topic(update, context, target_language=chat.language, topic=topic)
+                for topic in summary.topics
+            ]
+            session.add_all(translations)
         msg = "\n".join(
             f"- {translation.target_text}" for translation in sorted(translations, key=lambda t: t.topic.order)
         )

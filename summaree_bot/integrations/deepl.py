@@ -64,14 +64,6 @@ def _translate_topic(
     update: telegram.Update, context: DbSessionContext, target_language: Language, topic: Topic
 ) -> TopicTranslation:
     session = context.db_session
-    stmt = (
-        select(TopicTranslation)
-        .where(TopicTranslation.target_lang == target_language)
-        .where(TopicTranslation.topic == topic)
-    )
-
-    if translation := session.scalars(stmt).one_or_none():
-        return translation
 
     created_at = dt.datetime.now(dt.UTC)
 
