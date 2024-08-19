@@ -177,11 +177,16 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
 
     start_message = start_msg_task.result()
     bot_response_msg = bot_response_msg_task.result()
-    new_summary_msg = AdminChannelMessage(
-        text=(
+
+    try:
+        text = (
             f"📝 New summary created in chat {update.effective_chat.mention_markdown_v2()}"
             f" by user {update.effective_user.mention_markdown_v2()}"
-        ),
+        )
+    except ValueError:
+        text = f"📝 New summary created by user {update.effective_user.mention_markdown_v2()} \(in private chat\)"
+    new_summary_msg = AdminChannelMessage(
+        text=text,
         parse_mode=ParseMode.MARKDOWN_V2,
     )
 
