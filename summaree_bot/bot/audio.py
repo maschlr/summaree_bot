@@ -183,7 +183,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             f"📝 New summary created in chat {update.effective_chat.mention_markdown_v2()}"
             f" by user {update.effective_user.mention_markdown_v2()}"
         )
-    except ValueError:
+    except TypeError:
         text = f"📝 New summary created by user {update.effective_user.mention_markdown_v2()} \(in private chat\)"
     new_summary_msg = AdminChannelMessage(
         text=text,
