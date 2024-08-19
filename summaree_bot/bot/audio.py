@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Coroutine, cast
 
 import magic
-from sqlalchemy import extract, select
+from sqlalchemy import and_, extract, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
@@ -20,7 +20,14 @@ from ..integrations import (
 )
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
-from ..models import Language, Summary, TelegramChat, TopicTranslation, Transcript
+from ..models import (
+    Language,
+    Summary,
+    TelegramChat,
+    Topic,
+    TopicTranslation,
+    Transcript,
+)
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotMessage
 from .helpers import escape_markdown
@@ -93,9 +100,8 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     if chat.language != en_lang:
         stmt = (
             select(TopicTranslation)
+            .join(Topic, and_(TopicTranslation.topic_id == Topic.id, Topic.summary == summary))
             .where(TopicTranslation.target_lang == chat.language)
-            .where(TopicTranslation.topic.summary == summary)
-            .order_by(TopicTranslation.topic.order)
         )
 
         translations = session.scalars(stmt).all()
@@ -111,7 +117,14 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
-    return BotMessage(chat_id=update.effective_chat.id, text=msg)
+    prefix = "\n".join(
+        [
+            f"Voice message/audio language: {summary.transcript.input_language.flag_emoji}",
+            f"Summary language: {chat.language.flag_emoji}",
+        ]
+    )
+
+    return BotMessage(chat_id=update.effective_chat.id, text=f"{prefix}\n\n{msg}")
 
 
 async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
