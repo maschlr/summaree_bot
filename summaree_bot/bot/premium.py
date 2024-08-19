@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import json
 import os
@@ -42,6 +43,7 @@ PAYMENT_PAYLOAD_TOKEN = os.getenv("PAYMENT_PAYLOAD_TOKEN", "Configure me in .env
 @session_context
 @ensure_chat
 def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
+    """Handler for listing the referrals (hidden from commands menu)"""
     if update is None or update.message is None or update.effective_user is None:
         raise ValueError("update/message/user is None")
     session = context.db_session
@@ -78,6 +80,8 @@ async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 def get_subscription_keyboard(
     context: DbSessionContext, subscription_id: Optional[int] = None, return_products: bool = False
 ) -> Union[InlineKeyboardMarkup, tuple[InlineKeyboardMarkup, Mapping[PremiumPeriod, Product]]]:
+    """Returns an InlineKeyboardMarkup with the subscription options."""
+
     callback_data: dict[str, Union[str, Sequence, Mapping]] = {"fnc": "buy_or_extend_subscription"}
     if subscription_id is not None:
         callback_data["args"] = [subscription_id]
@@ -282,7 +286,6 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer(
             ok=False, error_message="😕 Something went wrong... Invoice has been cancelled. Support has been contacted."
         )
-        # TODO: write a message into admin channel
         raise
 
     await query.answer(ok=is_ok)
@@ -320,14 +323,20 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     invoice.subscription.status = SubscriptionStatus.active
 
     return BotMessage(
-        chat_id=update.message.chat_id,
+        chat_id=update.effective_chat.id,
         text=f"Thank you for your payment! Subscription is active until {invoice.subscription.end_date}",
     )
 
 
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _successful_payment_callback(update, context)
-    await bot_msg.send(context.bot)
+    new_invoice_msg = AdminChannelMessage(
+        text=f"💸 Winner, winner, chicken dinner! {update.effective_user.mention_markdown_v2} just paid an invoice!",
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(bot_msg.send(context.bot))
+        tg.create_task(new_invoice_msg.send(context.bot))
 
 
 def referral(update: Update, context: DbSessionContext, token: str) -> BotMessage:

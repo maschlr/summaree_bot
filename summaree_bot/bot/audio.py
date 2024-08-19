@@ -20,7 +20,7 @@ from ..integrations import (
 )
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
-from ..models import Language, Summary, TelegramChat, TelegramUser, Transcript
+from ..models import Language, Summary, TelegramChat, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotMessage
 from .helpers import escape_markdown
@@ -133,15 +133,6 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
-        user = session.get(TelegramUser, update.effective_user.id)  #
-
-        new_summary_msg = AdminChannelMessage(
-            text=(
-                f"📝 New summary created in chat {escape_markdown(str(update.effective_chat.id))}"
-                f" by user {user.md_link}"
-            ),
-            parse_mode=ParseMode.MARKDOWN_V2,
-        )
 
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
@@ -186,6 +177,13 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
 
     start_message = start_msg_task.result()
     bot_response_msg = bot_response_msg_task.result()
+    new_summary_msg = AdminChannelMessage(
+        text=(
+            f"📝 New summary created in chat {update.effective_chat.mention_markdown_v2()}"
+            f" by user {update.effective_user.mention_markdown_v2()}"
+        ),
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
 
     async with asyncio.TaskGroup() as tg:
         tg.create_task(start_message.delete())
