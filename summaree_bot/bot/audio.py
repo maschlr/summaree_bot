@@ -117,14 +117,19 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
-    prefix = "\n".join(
-        [
-            f"Voice message/audio language: {summary.transcript.input_language.flag_emoji}",
-            f"Summary language: {chat.language.flag_emoji}",
-        ]
-    )
+    # add language info if different
+    if summary.transcript.input_language != chat.language:
+        prefix = "\n".join(
+            [
+                f"Voice message/audio language: {summary.transcript.input_language.flag_emoji}",
+                f"Summary language: {chat.language.flag_emoji}",
+            ]
+        )
+        text = f"{prefix}\n\n{msg}"
+    else:
+        text = msg
 
-    return BotMessage(chat_id=update.effective_chat.id, text=f"{prefix}\n\n{msg}")
+    return BotMessage(chat_id=update.effective_chat.id, text=text)
 
 
 async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
