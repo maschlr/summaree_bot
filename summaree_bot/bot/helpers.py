@@ -62,10 +62,16 @@ class BotMessage(BotResponse):
             yield chunk
             chunk = buffer.read(every)
 
-    async def send(self, bot: ExtBot) -> None:
+    async def send(self, bot: ExtBot) -> Union[telegram.Message, Sequence[telegram.Message]]:
         kwargs_wo_text = {key: value for key, value in self.items() if key != "text"}
+        responses = []
         for chunk in self.split():
-            await bot.send_message(text=chunk, **kwargs_wo_text)
+            responses.append(await bot.send_message(text=chunk, **kwargs_wo_text))
+
+        if len(responses) > 1:
+            return responses
+        else:
+            return responses[0]
 
 
 @dataclass
