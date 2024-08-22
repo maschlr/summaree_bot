@@ -184,7 +184,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             )
             .all()
         )
-        if len(summaries_this_month) >= 10 and not chat.is_premium:
+        if len(summaries_this_month) >= 10 and not chat.is_premium_active:
             await update.effective_message.reply_markdown_v2(
                 escape_markdown(
                     "🚫 Sorry, you have reached the limit of 10 summaries per month. "
