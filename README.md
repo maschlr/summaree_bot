@@ -24,7 +24,7 @@ pip install -r requirements-dev.txt
 ### Database initialization (optional)
 
 ```bash
-python -m scrips.create_database
+python -m scripts.create_database
 ```
 
 ## Configuration
