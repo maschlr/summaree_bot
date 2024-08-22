@@ -27,26 +27,12 @@ jobs:
           REPO_PATH: ${{ secrets.REPO_PATH }}
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes $USER@$HOST << EOF
-            # Function to check if the process is running
-            is_process_running() {
-                pgrep -f "python bot.py" > /dev/null
-                return $?
-            }
 
             # Send Ctrl+C to gracefully stop the process
             screen -S $SCREEN_SESSION -X stuff $'\003'
-            timeout=60  # Maximum wait time in seconds
-            counter=0
-            while is_process_running && [ $counter -lt $timeout ]; do
-                sleep 1
-                counter=$((counter + 1))
-            done
 
-            # Check if the process is still running after timeout
-            if is_process_running; then
-                echo "Failed to terminate the process within $timeout seconds."
-                exit 1
-            fi
+            # Wait for the process to stop
+            sleep 2
 
             # Pull latest changes
             cd $REPO_PATH
