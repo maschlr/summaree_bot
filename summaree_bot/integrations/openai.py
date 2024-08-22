@@ -254,7 +254,11 @@ def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retrie
     )
     try:
         [choice] = summary_result.choices
-        data = json.loads(choice.message.content)
+        if choice.message.content.startswith("```"):
+            json_str = "\n".join(choice.message.content.splitlines()[1:-1])
+        else:
+            json_str = choice.message.content
+        data = json.loads(json_str)
     except IndexError:
         _logger.error(f"OpenAI returned more than one or no choices: {summary_result}")
         raise
