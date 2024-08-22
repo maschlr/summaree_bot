@@ -1,0 +1,57 @@
+name: SSH Deployment
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        env:
+          HOST: ${{ secrets.SERVER_HOST }}
+          USER: ${{ secrets.SERVER_USER }}
+          SCREEN_SESSION: ${{ secrets.SCREEN_SESSION }}
+          REPO_PATH: ${{ secrets.REPO_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes $USER@$HOST << EOF
+            # Function to check if the process is running
+            is_process_running() {
+                pgrep -f "python bot.py" > /dev/null
+                return $?
+            }
+
+            # Send Ctrl+C to gracefully stop the process
+            screen -S $SCREEN_SESSION -X stuff $'\003'
+            timeout=60  # Maximum wait time in seconds
+            counter=0
+            while is_process_running && [ $counter -lt $timeout ]; do
+                sleep 1
+                counter=$((counter + 1))
+            done
+
+            # Check if the process is still running after timeout
+            if is_process_running; then
+                echo "Failed to terminate the process within $timeout seconds."
+                exit 1
+            fi
+
+            # Pull latest changes
+            cd $REPO_PATH
+            git pull
+
+            # Restart the process
+            screen -S $SCREEN_SESSION -X stuff 'python bot.py\n'
+          EOF
