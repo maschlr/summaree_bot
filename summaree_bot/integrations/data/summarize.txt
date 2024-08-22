@@ -7,4 +7,5 @@ Step 2 - translate and clean the transcript into english. Remove any filler word
 
 Step 3 - summarize the translated transcript into bullet points (topics). Group similar topics together, even if they appear at different places in the transcript.
 
-Output a valid JSON string and nothing else using the following format: {"language": "<ietf_language_tag>", "topics": ["<topic_1>", "<topic_2>, ..., "<topic_N>"] }
+Output ONLY a valid JSON string and NOTHING ELSE.
+Use the following format for your output: {"language": "<ietf_language_tag>", "topics": ["<topic_1>", "<topic_2>, ..., "<topic_N>"] }

@@ -230,7 +230,7 @@ Topics:
         },
     ]
 
-    elaboration_result = client.chat.completions.create(model="gpt-3.5-turbo-0613", messages=messages, temperature=0)
+    elaboration_result = client.chat.completions.create(model="gpt-4o-mini", messages=messages, temperature=0)
     [choice] = elaboration_result.choices
     chat = session.get(TelegramChat, update.effective_chat.id)
     en_msg = choice.message.content
