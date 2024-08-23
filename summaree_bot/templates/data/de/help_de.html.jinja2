@@ -1,0 +1,7 @@
+Hi {{ user.mention_html() }}!
+Schick' mir eine Sprach- oder Audionachrich und ich erstelle eine Zusammenfassung für dich. Du kannst mir Nachrichten aus anderen Chats weiterleiten, auch wenn sie aus anderen Apps stammen.
+
+Weitere verfügbare Befehle sind:
+{% for command, description in commands.items() -%}
+/{{command}} - {{description}}
+{% endfor %}

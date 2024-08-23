@@ -1,0 +1,7 @@
+Hola {{ user.mention_html() }}!
+Envíame un mensaje de voz y te lo resumiré. Puedes reenviarme mensajes de otros chats, aunque estén en otras apps.
+
+Otros comandos disponibles son:
+{% for command, description in commands.items() -%}
+/{{command}} - {{description}}
+{% endfor %}

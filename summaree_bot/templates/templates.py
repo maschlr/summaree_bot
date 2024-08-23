@@ -9,7 +9,12 @@ template_paths = [template_root] + [template_root / path for path in ["de", "es"
 env = Environment(loader=FileSystemLoader(template_paths))
 
 TEMPLATES: dict[str, dict[str, str]] = {
-    "help": {"en": "help.html.jinja2", "ru": "help_ru.html.jinja2"},
+    "help": {
+        "en": "help.html.jinja2",
+        "ru": "help_ru.html.jinja2",
+        "es": "help_es.html.jinja2",
+        "de": "help_de.html.jinja2",
+    },
     "token_email": {"en": "token_email.html.jinja2"},
     "register": {"en": "register.md.jinja2"},
 }
