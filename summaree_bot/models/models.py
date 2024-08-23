@@ -5,6 +5,7 @@ import secrets
 from datetime import datetime
 from typing import List, Optional
 
+import deepl
 import sqlalchemy
 from sqlalchemy import Column, Date, ForeignKey, MetaData, Table, cast, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
@@ -14,6 +15,9 @@ from telegram.ext import ContextTypes
 from ..bot.helpers import escape_markdown
 from ..utils import url
 from .session import Session as SessionContext
+
+deepl_token: Optional[str] = os.getenv("DEEPL_TOKEN")
+translator = deepl.Translator(deepl_token)
 
 
 class Base(DeclarativeBase):
@@ -53,6 +57,7 @@ class Language(Base):
     transcripts: Mapped[List["Transcript"]] = relationship(back_populates="input_language")
     translations: Mapped[List["TopicTranslation"]] = relationship(back_populates="target_lang")
     chats: Mapped[List["TelegramChat"]] = relationship(back_populates="language")
+    i18n: Mapped[List["Translation"]] = relationship(back_populates="target_lang")
 
     @classmethod
     def get_default_language(cls, session: Session) -> "Language":
@@ -367,3 +372,43 @@ class Product(Base):
     currency: Mapped[str]
     active: Mapped[bool] = mapped_column(default=True)
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="product")
+
+
+class Translation(Base):
+    __tablename__ = "translation_i18n"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_text: Mapped[str]
+    target_text: Mapped[str]
+    target_lang_id: Mapped[int] = mapped_column(ForeignKey("language.id"))
+    target_lang: Mapped["Language"] = relationship(back_populates="i18n")
+
+    @classmethod
+    def get(cls, session: Session, source_lang_texts: set[str], ietf_lang_code: str) -> dict[str, str]:
+        lang_stmt = select(Language).where(Language.ietf_tag == ietf_lang_code)
+        lang = session.execute(lang_stmt).scalar_one()
+
+        filtered_i18n = filter(lambda i18n: i18n.source_text in (source_lang_texts), lang.i18n)
+        result = {translation.source_text: translation.target_text for translation in filtered_i18n}
+        missing_source_lang_texts = set(source_lang_texts) - result.keys()
+        if missing_source_lang_texts:
+            # create new translations for the missing texts
+            new_translations = {
+                source_text: translator.translate_text(source_text, source_lang="EN", target_lang=lang.code).text
+                for source_text in missing_source_lang_texts
+            }
+            result.update(new_translations)
+
+            # save new translations to the database
+            session.add_all(
+                [
+                    cls(
+                        source_text=source_text,
+                        target_text=target_text,
+                        target_lang=lang,
+                    )
+                    for source_text, target_text in new_translations.items()
+                ]
+            )
+
+        return result

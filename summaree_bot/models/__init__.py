@@ -15,6 +15,7 @@ from .models import (
     Topic,
     TopicTranslation,
     Transcript,
+    Translation,
 )
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "TelegramUser",
     "Topic",
     "Transcript",
+    "Translation",
     "TopicTranslation",
     "Subscription",
     "SubscriptionStatus",

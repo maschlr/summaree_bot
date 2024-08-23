@@ -25,8 +25,9 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..logging import getLogger
-from ..models import Language, TelegramChat, Transcript
+from ..models import Language, TelegramChat, Transcript, Translation
 from ..models.session import DbSessionContext
+from ..templates import get_template
 from ..utils import url
 from . import BotMessage
 from .audio import _get_summary_message
@@ -354,24 +355,27 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await bot_msg.send(context.bot)
 
 
-def _help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, commands: Sequence[BotCommand]) -> BotMessage:
-    keyboard_button = [InlineKeyboardButton("🦾 Show me a demo!", callback_data=dict(fnc="demo"))]
+@session_context
+def _help_handler(update: Update, context: DbSessionContext, commands: Sequence[BotCommand]) -> BotMessage:
+    lang_to_button_text = {"ru": "🦾 Покажи мне демо!", "es": "🦾 Demo, por favor!", "de": "🦾 Demo, bitte!"}
+
+    template = get_template("help", update)
+    ietf_tag = update.effective_user.language_code
+    if ietf_tag in {"ru", "es", "de"}:
+        descriptions = [command.description for command in commands]
+        translations = Translation.get(context.db_session, descriptions, ietf_tag)
+        command_to_translated_description = {command.command: translations[command.description] for command in commands}
+        text = template.render(user=update.effective_user, commands=command_to_translated_description)
+    else:
+        text = template.render(user=update.effective_user, commands=commands)
+
+    button_text = lang_to_button_text.get(ietf_tag, "🦾 Show me a demo!")
+    keyboard_button = [InlineKeyboardButton(button_text, callback_data=dict(fnc="demo"))]
     reply_markup = InlineKeyboardMarkup([keyboard_button])
 
-    long_line = (
-        "Send me a voice message and I will summarize it for you. "
-        "You can forward messages from other chats to me, even if they are in other apps.\n"
-    )
     bot_msg = BotMessage(
         chat_id=update.effective_message.chat_id,
-        text="\n".join(
-            [
-                f"Hi {update.effective_user.mention_html()}!",
-                long_line,
-                "Other available commands are:",
-                "\n".join(f"/{command.command} - {command.description}" for command in commands),
-            ]
-        ),
+        text=text,
         reply_markup=reply_markup,
         parse_mode=ParseMode.HTML,
     )
