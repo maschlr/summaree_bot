@@ -1,0 +1,12 @@
+{{ prefix }}
+**>{% for language in languages %}
+{%- if translations %}
+>{{ language.flag_emoji }} {{language.ietf_tag}} \[{{escape_markdown(translations[language.name])}}\]
+{%- else %}
+>{{ language.flag_emoji }} {{language.ietf_tag}} \[{{escape_markdown(language.name)}}\]
+{%- endif -%}
+{% endfor -%}||
+
+{% if suffix -%}
+{{ suffix }}
+{%- endif -%}

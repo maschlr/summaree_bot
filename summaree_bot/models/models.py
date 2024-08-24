@@ -390,7 +390,7 @@ class Translation(Base):
 
         filtered_i18n = filter(lambda i18n: i18n.source_text in (source_lang_texts), lang.i18n)
         result = {translation.source_text: translation.target_text for translation in filtered_i18n}
-        missing_source_lang_texts = set(source_lang_texts) - result.keys()
+        missing_source_lang_texts = source_lang_texts - result.keys()
         if missing_source_lang_texts:
             # create new translations for the missing texts
             new_translations = {

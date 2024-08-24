@@ -1,5 +1,6 @@
 from functools import wraps
 
+from sqlalchemy import select
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -39,15 +40,21 @@ def ensure_chat(fnc):
             )
 
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
-            # standard is english language
-            en_lang = Language.get_default_language(session)
-            if en_lang is None:
-                raise ValueError("English language not found in database.")
+            ietf_tag = update.effective_user.language_code
+            if ietf_tag in {"es", "ru", "de"}:
+                stmt = select(Language).where(Language.ietf_tag == ietf_tag)
+                lang = session.execute(stmt).scalar_one()
+            else:
+                # standard is english language
+                lang = Language.get_default_language(session)
+
+            if lang is None:
+                raise ValueError("Language not found in database.")
 
             chat = TelegramChat(
                 id=update.effective_chat.id,
                 type=update.effective_chat.type,
-                language=en_lang,
+                language=lang,
                 users={tg_user},
             )
             session.add(chat)

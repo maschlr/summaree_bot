@@ -32,12 +32,13 @@ from ..utils import url
 from . import BotMessage
 from .audio import _get_summary_message
 from .db import ensure_chat, session_context
-from .exceptions import NoActivePremium
 from .helpers import escape_markdown
 from .premium import get_sale_text, get_subscription_keyboard, referral
 
 # Enable logging
 _logger = getLogger(__name__)
+
+_t = Translation.get
 
 __all__ = [
     "start",
@@ -67,58 +68,69 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
     if not languages:
         raise ValueError("No languages found in database.")
 
-    def get_lang_msg(prefix: str, target_languages: Sequence[Language] = languages, suffix: str = "") -> str:
-        lang_text = ["**>"] + [
-            f">{lang.flag_emoji} {lang.ietf_tag} \[{escape_markdown(lang.name)}\]" for lang in target_languages
-        ]
-        lang_text[-1] = f"{lang_text[-1]}||"
+    ietf_tag = update.effective_user.language_code
 
-        _msg = "".join(
-            [
-                prefix,
-                "\n".join(lang_text),
-                f"\n\n{suffix}" if len(suffix) > 0 else suffix,
-            ]
-        )
-        return _msg
+    def get_lang_msg(
+        prefix: str,
+        target_languages: Sequence[Language] = languages,
+        suffix: str = "",
+        translations: Optional[dict[str, str]] = None,
+    ) -> str:
+        template = get_template("lang", update)
+        return template.render(prefix=prefix, languages=target_languages, suffix=suffix, translations=translations)
 
-    example_suffix = "\n".join(
-        [
-            "Examples:",
-            "🇺🇸 For English type: `/lang en`",
-            "🇪🇸 Para Español escribe `/lang es`",
-            "🇩🇪 Für Deutch, schreibe `/lang es`",
-            "🇷🇺 Для Русского напишите `/lang ru`\n",
-            "Or choose a button below:",
-        ]
-    )
+    example_suffix_lines = [
+        "Examples:",
+        "🇺🇸 For English type: `/lang en`",
+        "🇪🇸 Para Español escribe `/lang es`",
+        "🇩🇪 Für Deutch, schreibe `/lang es`",
+        "🇷🇺 Для Русского напишите `/lang ru`\n",
+        "Or choose a button below:",
+    ]
+    if ietf_tag in {"ru", "es", "de"}:
+        translations = _t(session, set([example_suffix_lines[0], example_suffix_lines[-1]]), ietf_tag)
+        first_line, last_line = [translations[line] for line in [example_suffix_lines[0], example_suffix_lines[-1]]]
+        example_suffix = "\n".join([first_line, *example_suffix_lines[1:-1], last_line])
 
     if not context.args:
         # Give the user an inline keyboard to choose from
         # make the inline keyboard pageable
         # first page has only "Next >>" button to go to the next page, last page only "<< Previous" button
         # Give the user 4 options, not the one they already have
+        if ietf_tag in {"ru", "es", "de"}:
+            to_translate = [chat.language.name, *[lang.name for lang in languages]]
+            translations.update(_t(session, set(to_translate), ietf_tag))
+            lang_txt = escape_markdown(
+                f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{translations[chat.language.name]}]"
+            )
+        else:
+            lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]")
+            example_suffix = "\n".join(example_suffix_lines)
+
+        prefix_template = get_template("lang_prefix", update)
+        prefix = prefix_template.render(lang_txt=lang_txt)
+
         reply_markup = _get_lang_inline_keyboard(update, context)
-        lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]")
+        kwargs = dict(prefix=prefix, target_languages=languages, suffix=example_suffix)
+        if ietf_tag in {"ru", "es", "de"}:
+            kwargs["translations"] = translations
+        text = get_lang_msg(**kwargs)
         return BotMessage(
             chat_id=chat.id,
-            text=get_lang_msg(
-                (
-                    f"Current language is: {lang_txt}"
-                    "\n\nYour can either choose one of the languages below or "
-                    "set your target language with `/lang` followed by the "
-                    "language short code from the following list:\n"
-                ),
-                languages,
-                example_suffix,
-            ),
+            text=text,
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup,
         )
 
     target_language_ietf_tag = context.args[0].lower()
     if target_language_ietf_tag not in {lang.ietf_tag for lang in languages}:
-        prefix = "Unknown language\.\n Available languages are:\n"
+        prefix_en = "Unknown language\.\n Available languages are:\n"
+        ietf_tag = update.effective_user.language_code
+        if ietf_tag in {"ru", "es", "de"}:
+            result = _t(session, set((prefix_en,)), ietf_tag)
+            [prefix] = list(result.values())
+        else:
+            prefix = prefix_en
         return BotMessage(
             chat_id=chat.id,
             text=get_lang_msg(prefix, languages, example_suffix),
@@ -203,15 +215,31 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
     # sorted languages with most common first
     ietf_tag_to_language = {lang.ietf_tag: lang for lang in languages}
     sorted_languages = [ietf_tag_to_language[ietf_tag] for ietf_tag in all_languages_ietf_tag]
-
     callback_data = {"fnc": "set_lang"}
-    language_buttons = [
-        InlineKeyboardButton(
-            f"{lang.flag_emoji} {lang.name}",
-            callback_data=dict(**callback_data, kwargs={"ietf_tag": lang.ietf_tag}),
+
+    previous_next_button_texts = ["<< Previous", "Next >>"]
+    ietf_tag = update.effective_user.language_code
+    if ietf_tag in {"ru", "es", "de"}:
+        translations = _t(
+            session, set(lang.name for lang in sorted_languages) | set(previous_next_button_texts), ietf_tag
         )
-        for lang in sorted_languages
-    ]
+        language_buttons = [
+            InlineKeyboardButton(
+                f"{lang.flag_emoji} {translations[lang.name]}",
+                callback_data=dict(**callback_data, kwargs={"ietf_tag": lang.ietf_tag}),
+            )
+            for lang in sorted_languages
+        ]
+    else:
+        # create a mapping to use in the previous/next button
+        translations = {button_text: button_text for button_text in previous_next_button_texts}
+        language_buttons = [
+            InlineKeyboardButton(
+                f"{lang.flag_emoji} {lang.name}",
+                callback_data=dict(**callback_data, kwargs={"ietf_tag": lang.ietf_tag}),
+            )
+            for lang in sorted_languages
+        ]
 
     n_lang = len(all_languages_ietf_tag)
     items_per_page = rows * columns
@@ -221,7 +249,9 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
     if page == 1:
         buttons_on_page = language_buttons[: items_per_page - 1]
         # only next button at last position of last row
-        buttons_on_page.append(InlineKeyboardButton("Next >>", callback_data=dict(**callback_data, kwargs={"page": 2})))
+        buttons_on_page.append(
+            InlineKeyboardButton(translations["Next >>"], callback_data=dict(**callback_data, kwargs={"page": 2}))
+        )
     elif page == n_pages:
         # last page
         # only previous button at first position of first row
@@ -236,7 +266,7 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
         buttons_on_page.insert(
             0,
             InlineKeyboardButton(
-                "<< Previous",
+                translations["<< Previous"],
                 callback_data=dict(**callback_data, kwargs={"page": page - 1}),
             ),
         )
@@ -247,13 +277,13 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
         buttons_on_page.insert(
             0,
             InlineKeyboardButton(
-                "<< Previous",
+                translations["<< Previous"],
                 callback_data=dict(**callback_data, kwargs={"page": page - 1}),
             ),
         )
         buttons_on_page.append(
             InlineKeyboardButton(
-                "Next >>",
+                translations["Next >>"],
                 callback_data=dict(**callback_data, kwargs={"page": page + 1}),
             )
         )
@@ -276,20 +306,7 @@ async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Set the target language when /lang {language_code} is issued."""
-    try:
-        bot_msg = _set_lang(update, context)
-    except NoActivePremium:
-        _msg = "\n".join(
-            [
-                "Setting an output language different from english is a premium feature.",
-                "Would you like to buy premium?",
-            ]
-        )
-        BotMessage(
-            _msg,
-            chat_id=update.effective_chat.id,
-            reply_markup=get_subscription_keyboard(context),
-        )
+    bot_msg = _set_lang(update, context)
     await bot_msg.send(context.bot)
 
 
