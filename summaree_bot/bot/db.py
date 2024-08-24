@@ -35,7 +35,7 @@ def ensure_chat(fnc):
             session.add(tg_user)
 
             context.bot_data["message_queue"].appendleft(
-                AdminChannelMessage(text=f"New user: {tg_user.md_link}", parse_mode=ParseMode.MARKDOWN_V2)
+                AdminChannelMessage(text=f"New user: {tg_user.md_link}", parse_mode=ParseMode.MARKDOWN)
             )
 
         if not (chat := session.get(TelegramChat, update.effective_chat.id)):
