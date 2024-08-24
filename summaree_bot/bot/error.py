@@ -1,4 +1,3 @@
-import html
 import json
 import os
 import traceback
@@ -10,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from ..logging import getLogger
 from . import BotMessage
+from .helpers import wrap_in_pre
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -18,9 +18,9 @@ __all__ = ["error_handler", "invalid_button_handler", "bad_command_handler"]
 
 
 async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Informs the user that the button is no longer available."""
     if not update.callback_query or not update.effective_message:
         raise ValueError("update needs callbackquery and effective message")
-    """Informs the user that the button is no longer available."""
     await update.callback_query.answer()
     await update.effective_message.edit_reply_markup(reply_markup=None)
     await update.effective_message.reply_markdown_v2(
@@ -40,16 +40,8 @@ def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_
     tb_string = "".join(tb_list)
 
     # Build the message with some markup and additional information about what happened.
-    def wrap_in_pre(text: str) -> str:
-        msg = html.escape(text)
-        wrapped_msg = f"<pre>{msg}</pre>"
-        len_wrapped_msg = len(wrapped_msg)
-        if len_wrapped_msg > 4096:
-            return wrap_in_pre(text[: -(len_wrapped_msg - 4096)])
-        return wrapped_msg
-
     message_generic = "An exception was raised while handling an update"
-    message_traceback = wrap_in_pre(f"{html.escape(tb_string)}")
+    message_traceback = wrap_in_pre(tb_string)
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
     message_update = wrap_in_pre(
         f"update = {json.dumps(update_str, indent=2, ensure_ascii=False)}\n"

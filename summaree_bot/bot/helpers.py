@@ -1,3 +1,6 @@
+import asyncio
+import html
+import inspect
 import io
 import os
 import pathlib
@@ -16,6 +19,7 @@ from telegram import (
     ReplyKeyboardRemove,
 )
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ExtBot
 
 
@@ -66,12 +70,28 @@ class BotMessage(BotResponse):
         kwargs_wo_text = {key: value for key, value in self.items() if key != "text"}
         responses = []
         for chunk in self.split():
-            responses.append(await bot.send_message(text=chunk, **kwargs_wo_text))
+            try:
+                response = await bot.send_message(text=chunk, **kwargs_wo_text)
+                responses.append(response)
+            except BadRequest as e:
+                stack = inspect.stack()
+                admin_message_reason = AdminChannelMessage(
+                    text=(
+                        f"`BadRequest` while sending message ({wrap_in_pre(e.message)}). "
+                        f"Calling function: `{stack[1].function}`\nMessage:"
+                    ),
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                )
+                admin_message = AdminChannelMessage(text=wrap_in_pre(chunk), parse_mode=ParseMode.HTML)
 
-        if len(responses) > 1:
-            return responses
-        else:
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(admin_message_reason.send(bot))
+                    tg.create_task(admin_message.send(bot))
+
+        if len(responses) == 1:
             return responses[0]
+        else:
+            return responses
 
 
 @dataclass
@@ -139,3 +159,13 @@ def escape_markdown(text: str) -> str:
     """Helper function to escape telegram markup symbols"""
     escape_chars = r".\*_[]()!#+{}~>-="
     return r"".join(rf"\{c}" if c in escape_chars else c for c in text)
+
+
+def wrap_in_pre(text: str) -> str:
+    """Wraps the text in a code block"""
+    msg = html.escape(text)
+    wrapped_msg = f"<pre>{msg}</pre>"
+    len_wrapped_msg = len(wrapped_msg)
+    if len_wrapped_msg > 4096:
+        return wrap_in_pre(text[: -(len_wrapped_msg - 4096)])
+    return wrapped_msg
