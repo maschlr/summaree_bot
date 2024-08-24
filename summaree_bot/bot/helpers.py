@@ -78,7 +78,7 @@ class BotMessage(BotResponse):
                 admin_message_reason = AdminChannelMessage(
                     text=(
                         f"`BadRequest` while sending message ({wrap_in_pre(e.message)}). "
-                        f"Calling function: `{stack[1].function}`\nMessage:"
+                        f"Calling function: `{stack[-1].function}`\nMessage:"
                     ),
                     parse_mode=ParseMode.MARKDOWN_V2,
                 )
@@ -87,6 +87,8 @@ class BotMessage(BotResponse):
                 async with asyncio.TaskGroup() as tg:
                     tg.create_task(admin_message_reason.send(bot))
                     tg.create_task(admin_message.send(bot))
+
+                raise e
 
         if len(responses) == 1:
             return responses[0]
