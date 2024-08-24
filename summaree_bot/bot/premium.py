@@ -57,17 +57,26 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
     else:
         n_referrals = len(tg_user.referrals)
         n_stars = 0
+        md_link_to_stars = {}
         for referred_user in tg_user.referrals:
-            star_invoices = (invoice for invoice in referred_user.invoices if invoice.product.currency == "XTR")
-            for invoice in star_invoices:
-                n_stars += invoice.total_amount
+            amount_stars_from_user = sum(
+                invoice.total_amount
+                for invoice in referred_user.invoices
+                if invoice.product.currency == "XTR" and invoice.status == InvoiceStatus.paid
+            )
+            md_link_to_stars[referred_user.md_link] = amount_stars_from_user
+            n_stars += amount_stars_from_user
 
         return BotMessage(
             chat_id=chat_id,
-            text=(
-                f"👥 Your referral token url is {tg_user.referral_url}\n\n"
-                f"💫 You have referred {n_referrals} users. They have paid a total of {n_stars} ⭐"
+            text="\n".join(
+                [
+                    f"👥 Your referral token url is {tg_user.referral_url}\n",
+                    f"💫 You have referred {n_referrals} users. They have paid a total of {n_stars} ⭐:",
+                    ("\n".join(f"- {md_link} paid {stars} ⭐" for md_link, stars in md_link_to_stars.items())),
+                ]
             ),
+            parse_mode=ParseMode.MARKDOWN,
         )
 
 
@@ -78,7 +87,9 @@ async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 def get_subscription_keyboard(
-    context: DbSessionContext, subscription_id: Optional[int] = None, return_products: bool = False
+    context: DbSessionContext,
+    subscription_id: Optional[int] = None,
+    return_products: bool = False,
 ) -> Union[InlineKeyboardMarkup, tuple[InlineKeyboardMarkup, Mapping[PremiumPeriod, Product]]]:
     """Returns an InlineKeyboardMarkup with the subscription options."""
 
@@ -104,7 +115,11 @@ def get_subscription_keyboard(
     keyboard_buttons = [
         [
             InlineKeyboardButton(
-                text, callback_data=dict(**callback_data, kwargs={"product_id": periods_to_products[period].id})
+                text,
+                callback_data=dict(
+                    **callback_data,
+                    kwargs={"product_id": periods_to_products[period].id},
+                ),
             )
         ]
         for period, text in period_to_keyboard_button_text.items()
@@ -147,7 +162,11 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
 
         subscription_msg += "\nWould you like to extend your subscription?"
         reply_markup = get_subscription_keyboard(context, subscriptions[0].id)
-        return BotMessage(chat_id=update.effective_chat.id, text=subscription_msg, reply_markup=reply_markup)
+        return BotMessage(
+            chat_id=update.effective_chat.id,
+            text=subscription_msg,
+            reply_markup=reply_markup,
+        )
     # case 2: chat has no active subscription
     #  -> check if user is in database, if not -> create
     #  -> ask user if subscription should be bought
@@ -223,7 +242,12 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     )
     prices = [LabeledPrice(description, price)]
 
-    invoice = Invoice(tg_user_id=tg_user.id, chat_id=chat_id, product_id=product.id, subscription=subscription)
+    invoice = Invoice(
+        tg_user_id=tg_user.id,
+        chat_id=chat_id,
+        product_id=product.id,
+        subscription=subscription,
+    )
     session.add(invoice)
 
     # w/o flush, invoice has no id
@@ -284,7 +308,8 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         is_ok = _precheckout_callback(update, context)
     except (json.JSONDecodeError, ValueError):
         await query.answer(
-            ok=False, error_message="😕 Something went wrong... Invoice has been cancelled. Support has been contacted."
+            ok=False,
+            error_message="😕 Something went wrong... Invoice has been cancelled. Support has been contacted.",
         )
         raise
 
@@ -383,7 +408,7 @@ def referral(update: Update, context: DbSessionContext, token: str) -> BotMessag
         chat_id=update.effective_chat.id,
     )
     admin_group_msg = AdminChannelMessage(
-        text=f"New user {tg_user.username or tg_user.first_name} activated 14 day trial premium subscription"
+        text=f"User {tg_user.username or tg_user.first_name} activated 14 day trial premium subscription"
     )
 
     return [user_msg, admin_group_msg]
