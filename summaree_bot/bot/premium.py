@@ -22,6 +22,7 @@ from ..models import (
     TelegramUser,
 )
 from ..models.session import DbSessionContext
+from ..templates import get_template
 from ..utils import url
 from . import AdminChannelMessage, BotInvoice, BotMessage
 from .db import ensure_chat, session_context
@@ -90,6 +91,7 @@ def get_subscription_keyboard(
     context: DbSessionContext,
     subscription_id: Optional[int] = None,
     return_products: bool = False,
+    ietf_tag: str = "en",
 ) -> Union[InlineKeyboardMarkup, tuple[InlineKeyboardMarkup, Mapping[PremiumPeriod, Product]]]:
     """Returns an InlineKeyboardMarkup with the subscription options."""
 
@@ -106,11 +108,40 @@ def get_subscription_keyboard(
         )
     periods_to_products = {product.premium_period: product for product in products}
 
+    lang_to_period_words = {
+        "en": {
+            PremiumPeriod.MONTH: "month",
+            PremiumPeriod.QUARTER: "months",
+            PremiumPeriod.YEAR: "year",
+        },
+        "ru": {
+            PremiumPeriod.MONTH: "месяц",
+            PremiumPeriod.QUARTER: "месяца",
+            PremiumPeriod.YEAR: "год",
+        },
+        "de": {
+            PremiumPeriod.MONTH: "Monat",
+            PremiumPeriod.QUARTER: "Monate",
+            PremiumPeriod.YEAR: "Jahr",
+        },
+        "es": {
+            PremiumPeriod.MONTH: "mes",
+            PremiumPeriod.QUARTER: "meses",
+            PremiumPeriod.YEAR: "año",
+        },
+    }
+    lookup = lang_to_period_words.get(ietf_tag, lang_to_period_words["en"])
     # create keyboard
     period_to_keyboard_button_text = {
-        PremiumPeriod.MONTH: f"🤖 1 month: ⭐{periods_to_products[PremiumPeriod.MONTH].discounted_price}",
-        PremiumPeriod.QUARTER: f"💯 3 months: ⭐{periods_to_products[PremiumPeriod.QUARTER].discounted_price}",
-        PremiumPeriod.YEAR: f"🔥 1 year: ⭐{periods_to_products[PremiumPeriod.YEAR].discounted_price}",
+        PremiumPeriod.MONTH: (
+            f"🤖 1 {lookup[PremiumPeriod.MONTH]}: ⭐{periods_to_products[PremiumPeriod.MONTH].discounted_price}"
+        ),
+        PremiumPeriod.QUARTER: (
+            f"💯 3 {lookup[PremiumPeriod.QUARTER]}: ⭐{periods_to_products[PremiumPeriod.QUARTER].discounted_price}"
+        ),
+        PremiumPeriod.YEAR: (
+            f"🔥 1 {lookup[PremiumPeriod.YEAR]}: ⭐{periods_to_products[PremiumPeriod.YEAR].discounted_price}"
+        ),
     }
     keyboard_buttons = [
         [
@@ -182,20 +213,9 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         )
 
 
-def get_sale_text(periods_to_products: Mapping[PremiumPeriod, Product]) -> str:
-    return "".join(
-        [
-            "Premium is on SALE right NOW:\n",
-            "\n".join(
-                (
-                    rf"\- {premium_period.value} days for ⭐{product.discounted_price} \(~{product.price}~ "
-                    rf"➡️ {(1-product.discounted_price/product.price)*100:.0f}% OFF\!\)"
-                )
-                for premium_period, product in periods_to_products.items()
-            ),
-            "\n\nWould you like to buy premium?",
-        ]
-    )
+def get_sale_text(periods_to_products: Mapping[PremiumPeriod, Product], ietf_tag: str = "en") -> str:
+    template = get_template("sale_suffix", ietf_tag)
+    return template.render(periods_to_products=periods_to_products)
 
 
 async def premium_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

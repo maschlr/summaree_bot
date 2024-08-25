@@ -4,10 +4,11 @@ from typing import Optional
 from jinja2 import Environment, FileSystemLoader, Template
 from telegram import Update
 
+from ..bot.constants import UI_TRANSLATION_IETF_TAGS
 from ..bot.helpers import escape_markdown
 
 template_root = Path(__file__).parent / "data"
-template_paths = [template_root] + [template_root / path for path in ["de", "es", "ru"]]
+template_paths = [template_root] + [template_root / path for path in UI_TRANSLATION_IETF_TAGS]
 env = Environment(loader=FileSystemLoader(template_paths))
 env.globals.update(escape_markdown=escape_markdown)
 
@@ -26,6 +27,18 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "ru": "lang_pre_ru.md.jinja2",
         "es": "lang_pre_es.md.jinja2",
         "de": "lang_pre_de.md.jinja2",
+    },
+    "terms": {
+        "en": "terms.md.jinja2",
+        "ru": "terms_ru.md.jinja2",
+        "es": "terms_es.md.jinja2",
+        "de": "terms_de.md.jinja2",
+    },
+    "sale_suffix": {
+        "en": "sale_suffix.md.jinja2",
+        "ru": "sale_suffix_ru.md.jinja2",
+        "es": "sale_suffix_es.md.jinja2",
+        "de": "sale_suffix_de.md.jinja2",
     },
     "token_email": {"en": "token_email.html.jinja2"},
     "register": {"en": "register.md.jinja2"},
