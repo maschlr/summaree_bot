@@ -440,8 +440,16 @@ def _help_handler(update: Update, context: DbSessionContext, commands: Sequence[
 
 
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang_to_text = {
+        "en": "Support is available at [summar\.ee bot support channel](https://t.me/+pfu9RGUlNt05MTZh)",
+        "ru": "Поддержка доступна в [супер чате summar\.ee](https://t.me/+pfu9RGUlNt05MTZh)",
+        "es": "Soporte disponible en [canal de soporte de summar\.ee](https://t.me/+pfu9RGUlNt05MTZh)",
+        "de": "Support verfügbar im [summar\.ee Bot Support Channel](https://t.me/+pfu9RGUlNt05MTZh)",
+    }
+    text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
+
     msg = BotMessage(
-        text="Support is available at [summar\.ee bot support channel](https://t.me/+pfu9RGUlNt05MTZh)",
+        text=text,
         chat_id=update.effective_chat.id,
         parse_mode=ParseMode.MARKDOWN_V2,
     )
