@@ -119,7 +119,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
         msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
     # add language info if different
-    if summary.transcript.input_language != chat.language:
+    if (summary_language := summary.transcript.input_language) and summary_language != chat.language:
         prefix = "\n".join(
             [
                 f"Voice message/audio language: {summary.transcript.input_language.flag_emoji}",
