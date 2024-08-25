@@ -94,6 +94,8 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         translations = _t(session, set([example_suffix_lines[0], example_suffix_lines[-1]]), ietf_tag)
         first_line, last_line = [translations[line] for line in [example_suffix_lines[0], example_suffix_lines[-1]]]
         example_suffix = "\n".join([first_line, *example_suffix_lines[1:-1], last_line])
+    else:
+        translations = {}
 
     if not context.args:
         # Give the user an inline keyboard to choose from
