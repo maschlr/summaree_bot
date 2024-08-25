@@ -38,6 +38,15 @@ jobs:
             cd $REPO_PATH
             git pull
 
+            # switch to the virtual environment
+            source .venv/bin/activate
+
+            # Update dependencies
+            pip install -r requirements.txt
+
+            # Run migrations
+            alembic upgrade head
+
             # Restart the process
             screen -S $SCREEN_SESSION -X stuff 'python bot.py\n'
           EOF
