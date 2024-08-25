@@ -31,7 +31,11 @@ from ..templates import get_template
 from ..utils import url
 from . import BotMessage
 from .audio import _get_summary_message
-from .constants import FREE_LANGUAGE_IETF_TAGS, UI_TRANSLATION_IETF_TAGS
+from .constants import (
+    FREE_LANGUAGE_IETF_TAGS,
+    RECEIVED_AUDIO_MESSAGE,
+    UI_TRANSLATION_IETF_TAGS,
+)
 from .db import ensure_chat, session_context
 from .helpers import escape_markdown
 from .premium import get_sale_text, get_subscription_keyboard, referral
@@ -491,9 +495,9 @@ async def demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # post the audio file
     bot = context.bot
     await bot.send_audio(chat_id=update.effective_chat.id, audio=os.getenv("DEMO_FILE_ID"))
-    reply = await update.effective_message.reply_text(
-        "🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment.",
-    )
+
+    text = RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, RECEIVED_AUDIO_MESSAGE["en"])
+    reply = await update.effective_message.reply_text(text)
     # wait one second
     await asyncio.sleep(1)
 

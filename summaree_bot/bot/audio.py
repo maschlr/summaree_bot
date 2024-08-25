@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotMessage
+from .constants import RECEIVED_AUDIO_MESSAGE
 from .helpers import escape_markdown
 
 # Enable logging
@@ -194,12 +195,9 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             return
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
+    text = RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, RECEIVED_AUDIO_MESSAGE["en"])
     async with asyncio.TaskGroup() as tg:
-        start_msg_task = tg.create_task(
-            update.message.reply_text(
-                "🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment.",
-            )
-        )
+        start_msg_task = tg.create_task(update.message.reply_text(text))
         bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
         tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
 
