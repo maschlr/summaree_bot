@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Optional, Union, cast
 
 import telegram
-from openai import OpenAI
-from sqlalchemy import select
+from openai import BadRequestError, OpenAI
+from sqlalchemy import func, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from ..bot import BotMessage, ensure_chat
@@ -119,7 +119,25 @@ def _transcribe_file(
 
     # send the audio file to openai whisper, create a db entry and return it
     with open(supported_file_path, "rb") as fp:
-        transcription_result = client.audio.transcriptions.create(model="whisper-1", file=fp, response_format="text")
+        try:
+            transcription_result = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=fp,
+                response_format="verbose_json",
+            )
+        except BadRequestError:
+            supported_file_path = transcode_to_mp3(file_path)
+            with open(supported_file_path, "rb") as fp:
+                transcription_result = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=fp,
+                    response_format="verbose_json",
+                )
+    if transcript_language_str := transcription_result.model_extra.get("language"):
+        query = select(Language).where(func.regexp_like(Language.name, f"^{transcript_language_str.capitalize()}"))
+        transcript_language = session.execute(query).scalar_one_or_none()
+    else:
+        transcript_language = None
 
     transcript = Transcript(
         created_at=update.effective_message.date,
@@ -130,7 +148,8 @@ def _transcribe_file(
         duration=voice_or_audio.duration,
         mime_type=voice_or_audio.mime_type,
         file_size=voice_or_audio.file_size,
-        result=transcription_result,
+        result=transcription_result.text,
+        input_language=transcript_language,
     )
     session.add(transcript)
     return transcript
@@ -157,12 +176,12 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     created_at = dt.datetime.now(dt.UTC)
     summary_data = get_openai_chatcompletion(messages)
 
-    # TODO: translation logic: premium feature
-    language_stmt = select(Language).where(Language.ietf_tag == summary_data["language"])
-    if not (language := session.scalars(language_stmt).one_or_none()):
-        _logger.warning(f"Could not find language with ietf_tag {summary_data['language']}")
-    else:
-        transcript.input_language = language
+    if transcript.input_language is None:
+        language_stmt = select(Language).where(Language.ietf_tag == summary_data["language"])
+        if not (language := session.scalars(language_stmt).one_or_none()):
+            _logger.warning(f"Could not find language with ietf_tag {summary_data['language']}")
+        else:
+            transcript.input_language = language
 
     summary = Summary(
         created_at=created_at,
