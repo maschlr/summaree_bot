@@ -169,7 +169,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         prefix = prefix_template.format(n_languages=len(languages))
         reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True, ietf_tag=ietf_tag)
 
-        suffix = get_sale_text(periods_to_products, ietf_tag)
+        suffix = get_sale_text(periods_to_products, update)
 
         kwargs = dict(prefix=prefix, target_languages=languages, suffix=suffix)
         if ietf_tag in UI_TRANSLATION_IETF_TAGS:

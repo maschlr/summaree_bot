@@ -1,5 +1,4 @@
 Premium is on SALE right NOW:
-{% for premium_period, product in periods_to_products.items() %}
-- {{ premium_period.value }} days for ⭐{{ product.discounted_price }} \(~${{ product.price }} ➡️ {{(1-product.discounted_price/product.price)*100:.0f}}% OFF\!\)
-{% endfor %}
-Would you like to buy premium?
+{% for premium_period, product in periods_to_products.items() -%}
+\- {{ premium_period.value }} days for ⭐{{ product.discounted_price }} \(~{{ product.price }}~ ➡️ {{ '%i' % ((1-product.discounted_price/product.price)*100) }}% OFF\!\)
+{% endfor -%}

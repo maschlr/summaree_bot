@@ -1,0 +1,6 @@
+🌟 Premium is currently active:
+{% for subscription in subscriptions -%}
+\- 📅 {{ escape_markdown(subscription.start_date.strftime('%x')) }} \- {{ escape_markdown(subscription.end_date.strftime('%x')) }} @ chat {{ escape_markdown(subscription.chat.title or subscription.chat.username)  }}
+{% endfor %}
+{% include 'sale_suffix.md.jinja2' %}
+Would you like to extend premium features?

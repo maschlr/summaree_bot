@@ -42,6 +42,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     },
     "token_email": {"en": "token_email.html.jinja2"},
     "register": {"en": "register.md.jinja2"},
+    "premium_active": {"en": "premium_active.md.jinja2"},
 }
 
 

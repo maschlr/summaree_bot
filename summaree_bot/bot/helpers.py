@@ -1,6 +1,4 @@
-import asyncio
 import html
-import inspect
 import io
 import os
 import pathlib
@@ -19,7 +17,6 @@ from telegram import (
     ReplyKeyboardRemove,
 )
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
 from telegram.ext import ExtBot
 
 
@@ -70,25 +67,8 @@ class BotMessage(BotResponse):
         kwargs_wo_text = {key: value for key, value in self.items() if key != "text"}
         responses = []
         for chunk in self.split():
-            try:
-                response = await bot.send_message(text=chunk, **kwargs_wo_text)
-                responses.append(response)
-            except BadRequest as e:
-                stack = inspect.stack()
-                admin_message_reason = AdminChannelMessage(
-                    text=(
-                        f"`BadRequest` while sending message ({wrap_in_pre(e.message)}). "
-                        f"Calling function: `{stack[-1].function}`\nMessage:"
-                    ),
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
-                admin_message = AdminChannelMessage(text=wrap_in_pre(chunk), parse_mode=ParseMode.HTML)
-
-                async with asyncio.TaskGroup() as tg:
-                    tg.create_task(admin_message_reason.send(bot))
-                    tg.create_task(admin_message.send(bot))
-
-                raise e
+            response = await bot.send_message(text=chunk, **kwargs_wo_text)
+            responses.append(response)
 
         if len(responses) == 1:
             return responses[0]

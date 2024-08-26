@@ -183,20 +183,18 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
     # case 1: chat has active subscription
     #   -> show subscription info
     #   -> ask user if subscription should be extended
-    if subscriptions := session.execute(stmt).scalars().all():
-        subscription_msg = "🌟 You have active subscription(s): \n"
-        for subscription in subscriptions:
-            subscription_msg += (
-                f"- 📅 {subscription.start_date.strftime('%x')} - {subscription.end_date.strftime('%x')} "
-                f"@ chat {subscription.chat.title or subscription.chat.username}\n"
-            )
 
-        subscription_msg += "\nWould you like to extend your subscription?"
-        reply_markup = get_subscription_keyboard(context, subscriptions[0].id)
+    if subscriptions := session.execute(stmt).scalars().all():
+        reply_markup, periods_to_products = get_subscription_keyboard(
+            context, subscription_id=subscriptions[0].id, return_products=True
+        )
+        template = get_template("premium_active", update)
+        text = template.render(subscriptions=subscriptions, periods_to_products=periods_to_products)
         return BotMessage(
             chat_id=update.effective_chat.id,
-            text=subscription_msg,
+            text=text,
             reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
     # case 2: chat has no active subscription
     #  -> check if user is in database, if not -> create
@@ -213,8 +211,8 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
         )
 
 
-def get_sale_text(periods_to_products: Mapping[PremiumPeriod, Product], ietf_tag: str = "en") -> str:
-    template = get_template("sale_suffix", ietf_tag)
+def get_sale_text(periods_to_products: Mapping[PremiumPeriod, Product], update: Optional[Update] = None) -> str:
+    template = get_template("sale_suffix", update)
     return template.render(periods_to_products=periods_to_products)
 
 
