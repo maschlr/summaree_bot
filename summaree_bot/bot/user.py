@@ -96,6 +96,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         example_suffix = "\n".join([first_line, *example_suffix_lines[1:-1], last_line])
     else:
         translations = {}
+        example_suffix = "\n".join(example_suffix_lines)
 
     if not context.args:
         # Give the user an inline keyboard to choose from
@@ -110,7 +111,6 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             )
         else:
             lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]")
-            example_suffix = "\n".join(example_suffix_lines)
 
         prefix_template = get_template("lang_prefix", update)
         prefix = prefix_template.render(lang_txt=lang_txt)
