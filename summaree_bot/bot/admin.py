@@ -5,6 +5,7 @@ import io
 import json
 import os
 from datetime import datetime, timedelta
+from typing import Generator
 
 import pandas as pd
 import prettytable as pt
@@ -148,33 +149,36 @@ def _stats(update: Update, context: DbSessionContext) -> AdminChannelMessage:
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Async handler for getting the /top users"""
-    msg = _top(update, context)
-    await msg.send(context.bot)
+    for msg in _top(update, context):
+        await msg.send(context.bot)
 
 
 @session_context
-def _top(update: Update, context: DbSessionContext):
+def _top(_update: Update, context: DbSessionContext) -> Generator[AdminChannelMessage, None, None]:
     session = context.db_session
-
     result = session.query(Summary.tg_user_id, func.count(Summary.id).label("count")).group_by(Summary.tg_user_id).all()
-
     result.sort(key=lambda x: x[1], reverse=True)
 
-    table = pt.PrettyTable(["User", "Summaries"])
+    table = pt.PrettyTable(["Rank", "User", "Summaries"])
+    table.align["Rank"] = "r"
     table.align["User"] = "l"
     table.align["Summaries"] = "r"
 
-    for user_id, count in result:
-        user = session.get(TelegramUser, user_id)
-        if not user:
-            continue
-        table.add_row([f"{user.username or user.first_name} ({user.id})", count])
+    rank = 1
+    step = 42
+    for i in range(0, len(result), step):
+        for user_id, count in result[i : i + step]:
+            user = session.get(TelegramUser, user_id)
+            if not user:
+                continue
+            table.add_row([rank, f"{user.username or user.first_name} ({user.id})", count])
+            rank += 1
 
-    msg = AdminChannelMessage(
-        text=f"```{table}```",
-        parse_mode=ParseMode.MARKDOWN_V2,
-    )
-    return msg
+        yield AdminChannelMessage(
+            text=f"```{table}```",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        table.clear_rows()
 
 
 async def activate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
