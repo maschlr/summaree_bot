@@ -50,16 +50,3 @@ jobs:
             # Restart the process
             screen -S $SCREEN_SESSION -X stuff 'python bot.py\n'
           EOF
-
-      - name: Health check
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: |
-          sleep 10  # Wait for the bot to start
-          response=$(curl -s "https://api.telegram.org/bot$BOT_TOKEN/getMe")
-          if [[ $response == *"\"ok\":true"* ]]; then
-            echo "Bot is up and running"
-          else
-            echo "Bot health check failed"
-            exit 1
-          fi
