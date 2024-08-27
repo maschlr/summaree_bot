@@ -56,24 +56,10 @@ class BotMessage(BotResponse):
     reply_markup: Optional[Union[InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, ForceReply]] = None
     message_thread_id: Optional[int] = None
 
-    def split(self, every=4096) -> Iterator[str]:
-        buffer = io.StringIO(self.text)
-        chunk = buffer.read(every)
-        while chunk:
-            yield chunk
-            chunk = buffer.read(every)
-
     async def send(self, bot: ExtBot) -> Union[telegram.Message, Sequence[telegram.Message]]:
         kwargs_wo_text = {key: value for key, value in self.items() if key != "text"}
-        responses = []
-        for chunk in self.split():
-            response = await bot.send_message(text=chunk, **kwargs_wo_text)
-            responses.append(response)
-
-        if len(responses) == 1:
-            return responses[0]
-        else:
-            return responses
+        response = await bot.send_message(text=self.text, **kwargs_wo_text)
+        return response
 
 
 @dataclass
