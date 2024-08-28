@@ -6,12 +6,13 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional, Union, cast
+from typing import Generator, Optional, Union, cast
 
 import telegram
 from openai import BadRequestError, OpenAI
 from sqlalchemy import func, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import MessageLimit
 
 from ..bot import BotMessage, ensure_chat
 from ..models import Language, Summary, TelegramChat, Topic, Transcript
@@ -196,7 +197,7 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
 
 
 @session_context
-def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> BotMessage:
+def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> Generator[BotMessage, None, None]:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
     elif not {"transcript_id", "summary_id"} & kwargs.keys():
@@ -206,6 +207,7 @@ def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> 
 
     transcript_id = kwargs.get("transcript_id")
     if transcript_id is not None:
+        # return the full transcript
         transcript = session.get(Transcript, transcript_id)
         if transcript is None:
             raise ValueError(f"Could not find transcript with id {transcript_id}")
@@ -222,9 +224,14 @@ def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> 
                 callback_data={"fnc": "translate_transcript", "kwargs": {"transcript_id": transcript_id}},
             )
         ]
-        return BotMessage(
-            chat_id=update.effective_chat.id, text=transcript.result, reply_markup=InlineKeyboardMarkup([buttons])
-        )
+
+        for i in range(0, len(transcript.result), MessageLimit.MAX_TEXT_LENGTH):
+            yield BotMessage(
+                chat_id=update.effective_chat.id,
+                text=transcript.result[i : i + MessageLimit.MAX_TEXT_LENGTH],
+                reply_markup=InlineKeyboardMarkup([buttons]),
+            )
+        return
 
     summary_id = kwargs.get("summary_id")
     summary = session.get(Summary, summary_id)
@@ -258,8 +265,12 @@ Topics:
     else:
         deepl_result = translator.translate_text(en_msg, target_lang=chat.language.code)
         msg = deepl_result.text
-    # TODO: this might generate messages that are too long; handle that case
-    return BotMessage(chat_id=update.effective_chat.id, text=msg)
+
+    for i in range(0, len(msg), MessageLimit.MAX_TEXT_LENGTH):
+        yield BotMessage(
+            chat_id=update.effective_chat.id,
+            text=msg[i : i + MessageLimit.MAX_TEXT_LENGTH],
+        )
 
 
 def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retries: int = 2) -> dict:

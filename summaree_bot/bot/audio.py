@@ -143,11 +143,9 @@ async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs
     )
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
-    bot_msg = _elaborate(update, context, **kwargs)
-
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(wait_msg.delete())
-        tg.create_task(bot_msg.send(context.bot))
+    await wait_msg.delete()
+    for bot_msg in _elaborate(update, context, **kwargs):
+        await bot_msg.send(context.bot)
 
 
 async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -167,14 +165,14 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
             await update.message.reply_markdown_v2(
                 escape_markdown(
-                    "🚫 Maximum file size for non-premium is 10MB. Please send a smaller file or upgrade to `/premium`."
+                    "⚠️ Maximum file size for non-premium is 10MB. Please send a smaller file or upgrade to `/premium`."
                 )
             )
             return
         elif file_size > 20 * 1024 * 1024:
             # TODO: openai whisper docs mention possible splitting of files >20MB -> look into/inplement
             await update.message.reply_text(
-                "🚫 Sorry, the file is too big to be processed (max. 20MB). Please send a smaller file."
+                "⚠️ Sorry, the file is too big to be processed (max. 20MB). Please send a smaller file."
             )
             return
         current_month = datetime.datetime.now(tz=datetime.UTC).month
@@ -188,7 +186,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         if len(summaries_this_month) >= 10 and not chat.is_premium_active:
             await update.effective_message.reply_markdown_v2(
                 escape_markdown(
-                    "🚫 Sorry, you have reached the limit of 10 summaries per month. "
+                    "⚠️ Sorry, you have reached the limit of 10 summaries per month. "
                     "Please consider upgrading to `/premium` to get unlimited summaries."
                 )
             )
