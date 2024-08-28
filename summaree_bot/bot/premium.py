@@ -90,6 +90,7 @@ async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 @session_context
 def get_subscription_keyboard(
+    update: Update,
     context: DbSessionContext,
     subscription_id: Optional[int] = None,
     return_products: bool = False,
@@ -188,7 +189,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
 
     if subscriptions := session.execute(stmt).scalars().all():
         reply_markup, periods_to_products = get_subscription_keyboard(
-            context, subscription_id=subscriptions[0].id, return_products=True
+            update, context, subscription_id=subscriptions[0].id, return_products=True
         )
         template = get_template("premium_active", update)
         text = template.render(subscriptions=subscriptions, periods_to_products=periods_to_products)
@@ -202,7 +203,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
     #  -> check if user is in database, if not -> create
     #  -> ask user if subscription should be bought
     else:
-        reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True)
+        reply_markup, periods_to_products = get_subscription_keyboard(update, context, return_products=True)
 
         text = r"You currently have no active subscription\. " + get_sale_text(periods_to_products)
         return BotMessage(

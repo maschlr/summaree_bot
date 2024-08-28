@@ -167,7 +167,9 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         }
         prefix_template = lang_to_prefix_template.get(ietf_tag, lang_to_prefix_template["en"])
         prefix = prefix_template.format(n_languages=len(languages))
-        reply_markup, periods_to_products = get_subscription_keyboard(context, return_products=True, ietf_tag=ietf_tag)
+        reply_markup, periods_to_products = get_subscription_keyboard(
+            update, context, return_products=True, ietf_tag=ietf_tag
+        )
 
         suffix = get_sale_text(periods_to_products, update)
 
