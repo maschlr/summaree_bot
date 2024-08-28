@@ -19,6 +19,7 @@ from summaree_bot.bot.admin import (
     deactivate_referral_code,
     forward_msg,
     get_file,
+    gift_premium,
     list_referral_codes,
     stats,
     top,
@@ -100,6 +101,7 @@ def main() -> None:
     application.add_handler(CommandHandler("deactivate", deactivate_referral_code, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("get_file", get_file, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("forward_msg", forward_msg, filters.Chat(int(admin_chat_id))))
+    application.add_handler(CommandHandler("gift", gift_premium, filters.Chat(int(admin_chat_id))))
     application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))

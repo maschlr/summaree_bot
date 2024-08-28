@@ -5,7 +5,7 @@ import io
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Generator
+from typing import Generator, Union
 
 import pandas as pd
 import prettytable as pt
@@ -13,12 +13,14 @@ from sqlalchemy import func, select
 from telegram import InputMediaPhoto, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+from telegram.helpers import mention_html
 
 from ..integrations.openai import summary_prompt_file_path
-from ..models import Summary, TelegramUser
+from ..models import Subscription, Summary, TelegramUser
 from ..models.session import DbSessionContext, session_context
-from . import AdminChannelMessage, BotDocument
+from . import AdminChannelMessage, BotDocument, BotMessage
 from .helpers import escape_markdown
+from .premium import create_subscription
 
 
 async def dataset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -274,4 +276,49 @@ async def forward_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id, msg_id = context.args[0]
     await context.application.bot.forward_message(
         chat_id=update.effective_chat.id, from_chat_id=chat_id, message_id=msg_id
+    )
+
+
+async def gift_premium(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler for the /gift_premium command to gift premium to a user."""
+    for msg in _gift_premium(update, context):
+        await msg.send(context.bot)
+
+
+@session_context
+def _gift_premium(
+    update: Update, context: DbSessionContext
+) -> Generator[Union[AdminChannelMessage, BotMessage], None, None]:
+    """Synchronous part of the /gift_premium command to gift premium to a user."""
+    session = context.db_session
+    try:
+        user_id_or_username, days = context.args
+    except ValueError:
+        yield AdminChannelMessage(text="Usage: /gift <user_id_or_username> <days>")
+        return
+
+    try:
+        user_id = int(user_id_or_username)
+        user = session.get(TelegramUser, user_id)
+    except ValueError:
+        user = session.scalar(select(TelegramUser).where(TelegramUser.username == user_id_or_username))
+
+    if user is None:
+        yield AdminChannelMessage(text=f"User {user_id_or_username} not found.")
+        return
+
+    subscription: Subscription = create_subscription(session, user.id, int(days), to_be_paid=False)
+    sub_end_date_str = subscription.end_date.strftime("%x")
+    lang_to_text = {
+        "en": f"🎁 A gift for you: summar.ee premium until {sub_end_date_str})",
+        "de": f"🎁 Ein Geschenk für dich: summar.ee Premium features bis zum {sub_end_date_str}",
+        "es": f"🎁 Un regalo para ti: summar.ee Premium features hasta el {sub_end_date_str}",
+        "ru": f"🎁 Подарок для вас: summar.ee Premium до {sub_end_date_str}",
+    }
+    text = lang_to_text.get(user.language_code, lang_to_text["en"])
+
+    yield BotMessage(chat_id=user.id, text=text)
+    yield AdminChannelMessage(
+        text=f"Premium gifted to {mention_html(user.id, user.username or user.first_name)} until {sub_end_date_str}",
+        parse_mode=ParseMode.HTML,
     )

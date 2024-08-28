@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Mapping, Optional, Sequence, Union, cast
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -87,6 +88,7 @@ async def referral_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await bot_msg.send(context.bot)
 
 
+@session_context
 def get_subscription_keyboard(
     context: DbSessionContext,
     subscription_id: Optional[int] = None,
@@ -238,16 +240,13 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     # create subscription
     start_date = datetime.now(dt.UTC)
     end_date = start_date + timedelta(days=product.premium_period.value)
-    subscription = Subscription(
-        tg_user=tg_user,
+    subscription = create_subscription(
+        session,
+        tg_user_id=tg_user.id,
+        duration=product.premium_period.value,
         chat_id=chat_id,
         start_date=start_date,
-        end_date=end_date,
-        status=SubscriptionStatus.pending,
-        type=SubscriptionType.paid,
-        active=False,
     )
-    session.add(subscription)
 
     title = "summar.ee premium subscription"
     # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
@@ -286,6 +285,44 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         need_email=False,
         protect_content=True,
     )
+
+
+def create_subscription(
+    session: Session,
+    tg_user_id: int,
+    duration: int,
+    chat_id: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    to_be_paid: bool = True,
+) -> int:
+    tg_user = session.get(TelegramUser, tg_user_id)
+    if tg_user is None:
+        raise ValueError(f"User {tg_user_id} not found")
+    if chat_id is None:
+        chat_id = tg_user_id
+    if start_date is None:
+        start_date = datetime.now(dt.UTC)
+    end_date = start_date + timedelta(days=duration)
+
+    if to_be_paid:
+        sub_kwargs = dict(
+            status=SubscriptionStatus.pending,
+            type=SubscriptionType.paid,
+            active=False,
+        )
+    else:
+        sub_kwargs = dict(
+            status=SubscriptionStatus.active,
+            type=SubscriptionType.reffered,
+            active=True,
+        )
+
+    subscription = Subscription(
+        tg_user=tg_user, chat_id=chat_id, start_date=start_date, end_date=end_date, **sub_kwargs
+    )
+    session.add(subscription)
+    session.flush()
+    return subscription
 
 
 async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:

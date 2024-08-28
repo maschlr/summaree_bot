@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from telegram.ext import ContextTypes
 
 if db_url := os.getenv("DB_URL"):
-    engine = create_engine(db_url)
+    engine = create_engine(db_url, isolation_level="AUTOCOMMIT")
 else:
     raise ValueError("DB_URL environment variable not set. Cannot initialize database engine.")
 
