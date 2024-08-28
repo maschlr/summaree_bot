@@ -1,5 +1,4 @@
-Premium ist aktuell on SALE:
-{% for premium_period, product in periods_to_products.items() %}
-\- {{ premium_period.value }} Tage für ⭐{{ product.discounted_price }} \(~${{ product.price }} ➡️ {{(1-product.discounted_price/product.price)*100:.0f}}% OFF\!\)
-{% endfor %}
-Möchtest du Premium kaufen?
+Es läuft eine **Aktion**:
+{% for premium_period, product in periods_to_products.items() -%}
+\- {{ premium_period.value }} Tage für ⭐{{ product.discounted_price }} \(~{{ product.price }}~ ➡️ {{ '%i' % ((1-product.discounted_price/product.price)*100) }}% Rabatt\!\)
+{% endfor -%}

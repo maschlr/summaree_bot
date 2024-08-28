@@ -65,16 +65,23 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         bot_msg = _get_summary_message(update, context, summary)
 
         # add button for elaboration
+        lang_to_button_text = {
+            "en": ["📖 Full transcript", "🪄 Give me more"],
+            "de": ["📖 Volles Transcript", "🪄 Mehr Kontext"],
+            "es": ["📖 Transcripción completa", "🪄 Más contexto"],
+            "ru": ["📖 Полный транскрипт", "🪄 Больше контекста"],
+        }
+        button_texts = lang_to_button_text.get(update.effective_user.language_code, lang_to_button_text["en"])
         buttons = [
             InlineKeyboardButton(
-                "📖 Full transcript",
+                button_texts[0],
                 callback_data={
                     "fnc": "elaborate",
                     "kwargs": {"transcript_id": summary.transcript_id},
                 },
             ),
             InlineKeyboardButton(
-                "🪄 Give me more",
+                button_texts[1],
                 callback_data={
                     "fnc": "elaborate",
                     "kwargs": {"summary_id": summary.id},
@@ -118,14 +125,28 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
-    # add language info if different
     if (summary_language := summary.transcript.input_language) and summary_language != chat.language:
-        prefix = "\n".join(
-            [
+        # add language info if different
+        lang_to_lang_prefix = {
+            "en": [
                 f"Voice message/audio language: {summary.transcript.input_language.flag_emoji}",
                 f"Summary language: {chat.language.flag_emoji}",
-            ]
-        )
+            ],
+            "de": [
+                f"Sprachnachricht/Audio-Sprache: {summary.transcript.input_language.flag_emoji}",
+                f"Zusammenfassungssprache: {chat.language.flag_emoji}",
+            ],
+            "es": [
+                f"Lenguaje del mensaje de voz/audio: {summary.transcript.input_language.flag_emoji}",
+                f"Lenguaje de la resumen: {chat.language.flag_emoji}",
+            ],
+            "ru": [
+                f"Язык аудиосообщения/аудио: {summary.transcript.input_language.flag_emoji}",
+                f"Язык резюме: {chat.language.flag_emoji}",
+            ],
+        }
+        prefix_lines = lang_to_lang_prefix.get(update.effective_user.language_code, lang_to_lang_prefix["en"])
+        prefix = "\n".join(prefix_lines)
         text = f"{prefix}\n\n{msg}"
     else:
         text = msg

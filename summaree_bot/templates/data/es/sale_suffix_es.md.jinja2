@@ -1,5 +1,4 @@
-¡Premium está en OFERTA AHORA MISMO:
-{% for premium_period, product in periods_to_products.items() %}
-\- {{ premium_period.value }} días por ⭐{{ product.discounted_price }} \(~${{ product.price }} ➡️ {{(1-product.discounted_price/product.price)*100:.0f}}% DE DESCUENTO\!\)
-{% endfor %}
-¿Te gustaría comprar premium?
+¡Está en OFERTA AHORA MISMO:
+{% for premium_period, product in periods_to_products.items() -%}
+\- {{ premium_period.value }} días por ⭐{{ product.discounted_price }} \(~{{ product.price }}~ ➡️ {{ '%i' % ((1-product.discounted_price/product.price)*100) }}% OFF\!\)
+{% endfor -%}

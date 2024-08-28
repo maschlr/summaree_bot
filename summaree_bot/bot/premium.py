@@ -158,7 +158,14 @@ def get_subscription_keyboard(
         ]
         for period, text in period_to_keyboard_button_text.items()
     ]
-    keyboard_buttons.append([InlineKeyboardButton("😌 No, thanks", callback_data={"fnc": "remove_inline_keyboard"})])
+    lang_to_remove_button_text = {
+        "en": "😌 No, thanks",
+        "ru": "😌 Нет, спасибо",
+        "de": "😌 Nein, danke",
+        "es": "😌 No, gracias",
+    }
+    remove_button_text = lang_to_remove_button_text.get(ietf_tag, lang_to_remove_button_text["en"])
+    keyboard_buttons.append([InlineKeyboardButton(remove_button_text, callback_data={"fnc": "remove_inline_keyboard"})])
     if return_products:
         return InlineKeyboardMarkup(keyboard_buttons), periods_to_products
     else:
@@ -204,8 +211,8 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
     #  -> ask user if subscription should be bought
     else:
         reply_markup, periods_to_products = get_subscription_keyboard(update, context, return_products=True)
-
-        text = r"You currently have no active subscription\. " + get_sale_text(periods_to_products)
+        template = get_template("premium_inactive", update)
+        text = template.render(periods_to_products=periods_to_products)
         return BotMessage(
             chat_id=update.effective_chat.id,
             text=text,
@@ -240,7 +247,7 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
 
     # create subscription
     start_date = datetime.now(dt.UTC)
-    end_date = start_date + timedelta(days=product.premium_period.value)
+    start_date + timedelta(days=product.premium_period.value)
     subscription = create_subscription(
         session,
         tg_user_id=tg_user.id,
@@ -248,16 +255,27 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         chat_id=chat_id,
         start_date=start_date,
     )
-
-    title = "summar.ee premium subscription"
+    lang_to_title = {
+        "en": "summar.ee premium",
+        "ru": "summar.ee премиум",
+        "de": "summar.ee Premium",
+        "es": "summar.ee premium",
+    }
+    title = lang_to_title.get(update.effective_user.language_code, lang_to_title["en"])
     # In order to get a provider_token see https://core.telegram.org/bots/payments#getting-a-token
     currency = "XTR"
     price = product.discounted_price
-    days = product.premium_period.value
-    description = (
-        f"Premium features for {days} days (from {start_date.strftime('%x')} to {end_date.strftime('%x')}; "
-        "ends automatically)"
-    )
+    lang_to_description = {
+        "en": "Premium features for {days} days (from {start_date.strftime('%x')} to {end_date.strftime('%x')}; "
+        "ends automatically)",
+        "ru": "Премиум-функции на {days} дней (с {start_date.strftime('%x')} по {end_date.strftime('%x')}; "
+        "автоматически продлевается)",
+        "de": "Premium-Funktionen für {days} Tage (von {start_date.strftime('%x')} bis {end_date.strftime('%x')}; "
+        "automatisch verlängert)",
+        "es": "Premium por {days} días (desde {start_date.strftime('%x')} hasta {end_date.strftime('%x')}; "
+        "se renueva automáticamente)",
+    }
+    description = lang_to_description.get(update.effective_user.language_code, lang_to_description["en"])
     prices = [LabeledPrice(description, price)]
 
     invoice = Invoice(
@@ -456,11 +474,27 @@ def referral(update: Update, context: DbSessionContext, token: str) -> BotMessag
     )
     session.add(subscription)
 
-    user_msg = BotMessage(
-        text=(
-            "🥳 You have successfully activated your 14 day trial premium subscription"
-            f"(ends at {end_date.strftime('%x')})"
+    lang_to_text = {
+        "en": (
+            "🥳 You have successfully activated your 14 day trial premium features"
+            f" (ends on {end_date.strftime('%x')})"
         ),
+        "ru": (
+            "🥳 Вы успешно активировали 14-дневную пробную версию премиум-функций"
+            f" (заканчивается {end_date.strftime('%x')})"
+        ),
+        "de": (
+            "🥳 Du hast deine 14-tägige Testversion der Premium-Funktionen erfolgreich aktiviert"
+            f" (endet am {end_date.strftime('%x')})"
+        ),
+        "es": (
+            "🥳 Has activado con éxito tu prueba de 14 días de las funciones premium"
+            f" (termina el {end_date.strftime('%x')})"
+        ),
+    }
+    text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
+    user_msg = BotMessage(
+        text=text,
         chat_id=update.effective_chat.id,
     )
     admin_group_msg = AdminChannelMessage(
