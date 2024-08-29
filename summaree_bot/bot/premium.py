@@ -294,7 +294,6 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         subscription=subscription,
     )
     session.add(invoice)
-
     # w/o flush, invoice has no id
     session.flush()
 
@@ -405,11 +404,7 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 def _successful_payment_callback(update: Update, context: DbSessionContext) -> BotMessage:
     """Confirms the successful payment."""
     context = cast(DbSessionContext, context)
-    if (
-        update.message is None
-        or (payment := update.message.successful_payment) is None
-        or (_tg_user := update.effective_user) is None
-    ):
+    if update.message is None or (payment := update.message.successful_payment) is None:
         raise ValueError("update.message.successful_payment is None")
 
     session = context.db_session
@@ -419,20 +414,20 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     if not invoice:
         raise ValueError(f"Invoice with ID {invoice_id} not found")
 
-    if (_tg_user := update.effective_user) is None:
-        raise ValueError("telegram user is None")
-    # check if invoice user has changed (e.g. forwarded invoice)
-    tg_user = session.get(TelegramUser, _tg_user.id)
-    if tg_user is None or tg_user.user is None:
-        raise ValueError("(telegram) user not found in database")
-
     invoice.status = InvoiceStatus.paid
     invoice.subscription.active = True
     invoice.subscription.status = SubscriptionStatus.active
 
+    end_date_str = invoice.subscription.end_date.strftime("%x")
+    lang_to_text = {
+        "en": f"Thank you for your payment! Premium is active until {end_date_str}",
+        "ru": f"Спасибо за оплату! Премиум-функции активны до {end_date_str}",
+        "de": f"Danke für die Zahlung! Premium-Funktionen sind aktiv bis {end_date_str}",
+        "es": f"Gracias por su pago! Las funciones premium están activas hasta el {end_date_str}",
+    }
     return BotMessage(
         chat_id=update.effective_chat.id,
-        text=f"Thank you for your payment! Subscription is active until {invoice.subscription.end_date}",
+        text=lang_to_text.get(update.effective_user.language_code, lang_to_text["en"]),
     )
 
 
