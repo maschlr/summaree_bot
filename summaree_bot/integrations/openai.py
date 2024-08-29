@@ -215,21 +215,23 @@ def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> 
         chat = session.get(TelegramChat, update.effective_chat.id)
         if chat is None:
             raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
-        if chat.language == transcript.input_language:
-            return BotMessage(chat_id=update.effective_chat.id, text=transcript.result)
 
-        buttons = [
-            InlineKeyboardButton(
-                f"{chat.language.flag_emoji} Translate",
-                callback_data={"fnc": "translate_transcript", "kwargs": {"transcript_id": transcript_id}},
-            )
-        ]
+        if chat.language != transcript.input_language:
+            buttons = [
+                InlineKeyboardButton(
+                    f"{chat.language.flag_emoji} Translate",
+                    callback_data={"fnc": "translate_transcript", "kwargs": {"transcript_id": transcript_id}},
+                )
+            ]
+            markup = InlineKeyboardMarkup([buttons])
+        else:
+            markup = None
 
         for i in range(0, len(transcript.result), MessageLimit.MAX_TEXT_LENGTH):
             yield BotMessage(
                 chat_id=update.effective_chat.id,
                 text=transcript.result[i : i + MessageLimit.MAX_TEXT_LENGTH],
-                reply_markup=InlineKeyboardMarkup([buttons]),
+                reply_markup=markup,
             )
         return
 
