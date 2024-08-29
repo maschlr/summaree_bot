@@ -247,7 +247,8 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
 
     # create subscription
     start_date = datetime.now(dt.UTC)
-    start_date + timedelta(days=product.premium_period.value)
+    days = product.premium_period.value
+    end_date = start_date + timedelta(days=days)
     subscription = create_subscription(
         session,
         tg_user_id=tg_user.id,
@@ -266,14 +267,22 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     currency = "XTR"
     price = product.discounted_price
     lang_to_description = {
-        "en": "Premium features for {days} days (from {start_date.strftime('%x')} to {end_date.strftime('%x')}; "
-        "ends automatically)",
-        "ru": "Премиум-функции на {days} дней (с {start_date.strftime('%x')} по {end_date.strftime('%x')}; "
-        "автоматически продлевается)",
-        "de": "Premium-Funktionen für {days} Tage (von {start_date.strftime('%x')} bis {end_date.strftime('%x')}; "
-        "automatisch verlängert)",
-        "es": "Premium por {days} días (desde {start_date.strftime('%x')} hasta {end_date.strftime('%x')}; "
-        "se renueva automáticamente)",
+        "en": (
+            f"Premium features for {days} days (from {start_date.strftime('%x')} to {end_date.strftime('%x')}; "
+            "ends automatically)"
+        ),
+        "ru": (
+            f"Премиум-функции на {days} дней (с {start_date.strftime('%x')} по {end_date.strftime('%x')}; "
+            "автоматически заканчивается)"
+        ),
+        "de": (
+            f"Premium-Funktionen für {days} Tage (von {start_date.strftime('%x')} bis {end_date.strftime('%x')}; "
+            "endet automatisch)"
+        ),
+        "es": (
+            f"Premium por {days} días (desde {start_date.strftime('%x')} hasta {end_date.strftime('%x')}; "
+            "se termina automáticamente)"
+        ),
     }
     description = lang_to_description.get(update.effective_user.language_code, lang_to_description["en"])
     prices = [LabeledPrice(description, price)]
