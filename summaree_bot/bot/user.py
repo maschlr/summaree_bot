@@ -484,10 +484,7 @@ async def terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @session_context
 @ensure_chat
 def _catch_all(update: Update, context: DbSessionContext) -> Optional[BotMessage]:
-    if update.message is None:
-        raise ValueError("The update must contain a message.")
-    else:
-        return None
+    return None
 
 
 async def catch_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
