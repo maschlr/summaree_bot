@@ -186,9 +186,20 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
+            lang_to_text = {
+                "en": "⚠️ Maximum file size for non-premium is 10MB. "
+                "Please send a smaller file or upgrade to `/premium`.",
+                "de": "⚠️ Die maximale Dateigröße für Nicht-Premium-Nutzer beträgt 10MB. "
+                "Bitte senden Sie eine kleinere Datei oder aktualisieren Sie Ihre Premium-Lizenz.",
+                "es": "⚠️ El tamaño máximo de archivo para no-premium es de 10MB. "
+                "Envíe un archivo más pequeño o actualice a `/premium`.",
+                "ru": "⚠️ Максимальный размер файла для не-премиум составляет 10MB. "
+                "Отправьте меньший файл или обновитесь до `/premium`.",
+            }
+            text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
             await update.message.reply_markdown_v2(
                 escape_markdown(
-                    "⚠️ Maximum file size for non-premium is 10MB. Please send a smaller file or upgrade to `/premium`.",
+                    text,
                     2,
                 ),
                 reply_markup=subscription_keyboard,
@@ -198,9 +209,17 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             # TODO: openai whisper docs mention possible splitting of files >25MB -> look into/inplement
             # implement using pydub -> split audio into chunks of 25MB and process each chunk
             # split using silence
-            await update.message.reply_text(
-                "⚠️ Sorry, the file is too big to be processed (max. 25MB). Please send a smaller file."
-            )
+            lang_to_text = {
+                "en": "⚠️ Sorry, the file is too big to be processed (max. 25MB). " "Please send a smaller file.",
+                "de": "⚠️ Sorry, die Datei ist zu groß, um zu verarbeiten (max. 25MB). "
+                "Bitte senden Sie eine kleinere Datei.",
+                "es": "⚠️ Lo sentimos, el archivo es demasiado grande para ser procesado (máximo 25MB). "
+                "Envíe un archivo más pequeño.",
+                "ru": "⚠️ Извините, файл слишком большой, чтобы быть обработанным (максимум 25MB). "
+                "Отправьте меньший файл.",
+            }
+            text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
+            await update.message.reply_text(text)
             return
         current_month = datetime.datetime.now(tz=datetime.UTC).month
         summaries_this_month = (
@@ -211,10 +230,20 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             .all()
         )
         if len(summaries_this_month) >= 10 and not chat.is_premium_active:
+            lang_to_text = {
+                "en": "⚠️ Sorry, you have reached the limit of 10 summaries per month. "
+                "Please consider upgrading to `/premium` to get unlimited summaries.",
+                "de": "⚠️ Sorry, du hast die Grenze von 10 Zusammenfassungen pro Monat erreicht. "
+                "Mit Premium erhälts du eine unbegrenzte Anzahl an Zusammenfassungen",
+                "es": "⚠️ Lo sentimos, has alcanzado el límite de 10 resúmenes al mes. "
+                "Considere actualizar a `/premium` para obtener resúmenes ilimitados.",
+                "ru": "⚠️ Извините, вы достигли ограничения в 10 резюме в месяц. "
+                "Пожалуйста, рассмотрите возможность обновления до `/premium` для получения неограниченных резюме.",
+            }
+            text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
             await update.effective_message.reply_markdown_v2(
                 escape_markdown(
-                    "⚠️ Sorry, you have reached the limit of 10 summaries per month. "
-                    "Please consider upgrading to `/premium` to get unlimited summaries.",
+                    text,
                     2,
                 ),
                 reply_markup=subscription_keyboard,
