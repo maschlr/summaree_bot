@@ -19,6 +19,7 @@ from telegram.constants import MessageLimit
 from telegram.ext import ContextTypes
 
 from ..bot import BotDocument, BotMessage, ensure_chat
+from ..bot.helpers import has_non_ascii
 from ..models import Language, Summary, TelegramChat, Topic, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from .audio import split_audio, transcode_ffmpeg
@@ -55,10 +56,15 @@ def _check_existing_transcript(
 
 def _extract_file_name(voice_or_audio: Union[telegram.Voice, telegram.Audio]) -> Path:
     if hasattr(voice_or_audio, "file_name") and voice_or_audio.file_name is not None:
-        return Path(voice_or_audio.file_name)
+        file_name = Path(voice_or_audio.file_name)
+        if has_non_ascii(str(file_name)):
+            sanitized_file_name = voice_or_audio.file_unique_id + file_name.suffix
+            return Path(sanitized_file_name)
+        return file_name
 
     # else try to extract the suffix via the mime type or use file_name without suffic
     match = None
+
     if mime_type := voice_or_audio.mime_type:
         match = mimetype_pattern.match(mime_type)
 
