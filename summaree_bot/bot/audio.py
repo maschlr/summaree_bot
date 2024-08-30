@@ -190,10 +190,12 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 )
             )
             return
-        elif file_size > 20 * 1024 * 1024:
-            # TODO: openai whisper docs mention possible splitting of files >20MB -> look into/inplement
+        elif file_size > 25 * 1024 * 1024:
+            # TODO: openai whisper docs mention possible splitting of files >25MB -> look into/inplement
+            # implement using pydub -> split audio into chunks of 25MB and process each chunk
+            # split using silence
             await update.message.reply_text(
-                "⚠️ Sorry, the file is too big to be processed (max. 20MB). Please send a smaller file."
+                "⚠️ Sorry, the file is too big to be processed (max. 25MB). Please send a smaller file."
             )
             return
         current_month = datetime.datetime.now(tz=datetime.UTC).month

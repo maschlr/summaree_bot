@@ -94,11 +94,11 @@ def get_subscription_keyboard(
     context: DbSessionContext,
     subscription_id: Optional[int] = None,
     return_products: bool = False,
-    ietf_tag: str = "en",
 ) -> Union[InlineKeyboardMarkup, tuple[InlineKeyboardMarkup, Mapping[PremiumPeriod, Product]]]:
     """Returns an InlineKeyboardMarkup with the subscription options."""
 
     callback_data: dict[str, Union[str, Sequence, Mapping]] = {"fnc": "buy_or_extend_subscription"}
+    ietf_tag = update.effective_user.language_code
     if subscription_id is not None:
         callback_data["args"] = [subscription_id]
 
