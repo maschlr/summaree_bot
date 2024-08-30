@@ -3,7 +3,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from summaree_bot.integrations.openai import _transcribe_file, summarize
+from summaree_bot.integrations.openai import summarize, transcribe_file
 from summaree_bot.models import Summary, Transcript
 
 from .common import Common
@@ -31,7 +31,7 @@ class TestOpenAI(Common):
 
         with cls.Session.begin() as session:
             for file_path, voice in zip(cls.mp3_file_paths, voices, strict=True):
-                _transcribe_file(file_path, voice, session, commit=False)
+                transcribe_file(file_path, voice, session, commit=False)
 
         return result
 

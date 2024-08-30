@@ -67,8 +67,8 @@ def _dataset(update: Update, context: DbSessionContext) -> BotDocument:
     now = datetime.now(dt.UTC)
     filename = f"dataset-{now.isoformat()[:19]}.jsonl.bz2"
     bot_msg = BotDocument(
-        chat_id=update.message.chat_id,
-        reply_to_message_id=update.message.message_id,
+        chat_id=update.effective_message.chat_id,
+        reply_to_message_id=update.effective_message.message_id,
         filename=filename,
         document=compressed_buffer.getvalue(),
     )

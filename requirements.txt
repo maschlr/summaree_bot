@@ -11,3 +11,5 @@ python-magic
 prettytable
 pandas
 matplotlib
+telethon
+tqdm

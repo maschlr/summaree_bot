@@ -5,7 +5,7 @@ from .openai import (
     _elaborate,
     _extract_file_name,
     _summarize,
-    _transcribe_file,
+    transcribe_file,
 )
 
 __all__ = [
@@ -17,6 +17,6 @@ __all__ = [
     "is_valid_email",
     "_check_existing_transcript",
     "_extract_file_name",
-    "_transcribe_file",
+    "transcribe_file",
     "_translate_topic",
 ]

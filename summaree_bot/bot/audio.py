@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Coroutine, cast
@@ -10,14 +11,16 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown
+from telethon.sync import TelegramClient as TelethonClient
+from tqdm.asyncio import tqdm
 
 from ..integrations import (
     _check_existing_transcript,
     _elaborate,
     _extract_file_name,
     _summarize,
-    _transcribe_file,
     _translate_topic,
+    transcribe_file,
 )
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
@@ -51,15 +54,18 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 # download the file to the folder
                 tempdir_path = Path(tempdir_path_str)
                 file_path = tempdir_path / file_name
-                file = await voice_or_audio.get_file()
-                await file.download_to_drive(file_path)
+                if voice_or_audio.file_size > 20 * 1024 * 1024:
+                    await download_large_file(update.effective_chat.id, update.message.message_id, file_path)
+                else:
+                    file = await voice_or_audio.get_file()
+                    await file.download_to_drive(file_path)
 
                 if not file_name.suffix:
                     mime = magic.from_file(file_path, mime=True)
                     _, suffix = mime.split("/")
                     file_path.rename(file_path.with_suffix(f".{suffix}"))
 
-                transcript = _transcribe_file(update, context, file_path, voice_or_audio)
+                transcript = await transcribe_file(update, context, file_path, voice_or_audio)
 
         summary = _summarize(update, context, transcript)
 
@@ -92,6 +98,23 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
 
     return bot_msg
+
+
+async def download_large_file(chat_id, message_id, destination):
+    client = TelethonClient("bot", os.environ["TELEGRAM_API_ID"], os.environ["TELEGRAM_API_HASH"])
+    try:
+        await client.start(bot_token=os.environ["TELEGRAM_BOT_TOKEN"])
+        message = await client.get_messages(chat_id, ids=message_id)
+        if message.file:
+            _logger.info("Downloading large file")
+            with open(destination, "wb") as fp:
+                async for chunk in tqdm(client.iter_download(message)):
+                    fp.write(chunk)
+            print(f"File saved to {destination}")
+        else:
+            print("This message does not contain a file")
+    finally:
+        await client.disconnect()
 
 
 @session_context
@@ -182,7 +205,6 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
-
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
@@ -205,22 +227,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 reply_markup=subscription_keyboard,
             )
             return
-        elif file_size > 25 * 1024 * 1024:
-            # TODO: openai whisper docs mention possible splitting of files >25MB -> look into/inplement
-            # implement using pydub -> split audio into chunks of 25MB and process each chunk
-            # split using silence
-            lang_to_text = {
-                "en": "⚠️ Sorry, the file is too big to be processed (max. 25MB). " "Please send a smaller file.",
-                "de": "⚠️ Sorry, die Datei ist zu groß, um zu verarbeiten (max. 25MB). "
-                "Bitte senden Sie eine kleinere Datei.",
-                "es": "⚠️ Lo sentimos, el archivo es demasiado grande para ser procesado (máximo 25MB). "
-                "Envíe un archivo más pequeño.",
-                "ru": "⚠️ Извините, файл слишком большой, чтобы быть обработанным (максимум 25MB). "
-                "Отправьте меньший файл.",
-            }
-            text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
-            await update.message.reply_text(text)
-            return
+
         current_month = datetime.datetime.now(tz=datetime.UTC).month
         summaries_this_month = (
             session.query(Summary)

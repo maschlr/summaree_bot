@@ -1,22 +1,27 @@
+import asyncio
 import datetime as dt
 import hashlib
 import json
 import logging
 import os
 import re
-import subprocess
+import tempfile
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional, Union, cast
 
 import telegram
-from openai import BadRequestError, OpenAI
+from openai import AsyncOpenAI, BadRequestError, OpenAI
 from sqlalchemy import func, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import MessageLimit
+from telegram.ext import ContextTypes
 
-from ..bot import BotMessage, ensure_chat
+from ..bot import BotDocument, BotMessage, ensure_chat
 from ..models import Language, Summary, TelegramChat, Topic, Transcript
-from ..models.session import DbSessionContext, session_context
+from ..models.session import DbSessionContext, Session, session_context
+from .audio import split_audio, transcode_ffmpeg
 from .deepl import translator
 
 _logger = logging.getLogger(__name__)
@@ -25,17 +30,7 @@ mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
 client = OpenAI()
 
-__all__ = ["_check_existing_transcript", "_extract_file_name", "_transcribe_file", "_summarize", "_elaborate"]
-
-
-def transcode_ffmpeg(file_path: Path) -> Path:
-    _logger.info(f"Transcoding file: {file_path}")
-
-    output_filepath = file_path.parent / f"{file_path.stem}.m4a"
-    run_args = ["ffmpeg", "-i", str(file_path), "-c:a", "aac_he", "-b:a", "64k", str(output_filepath)]
-    subprocess.run(run_args, capture_output=True)
-    _logger.info(f"Transcoding successfully finished: {output_filepath}")
-    return output_filepath
+__all__ = ["_check_existing_transcript", "_extract_file_name", "transcribe_file", "_summarize", "_elaborate"]
 
 
 @session_context
@@ -75,19 +70,19 @@ def _extract_file_name(voice_or_audio: Union[telegram.Voice, telegram.Audio]) ->
     return Path(file_name)
 
 
-@session_context
-def _transcribe_file(
+async def transcribe_file(
     update: telegram.Update,
-    context: DbSessionContext,
+    context: ContextTypes.DEFAULT_TYPE,
     file_path: Path,
     voice_or_audio: Union[telegram.Voice, telegram.Audio],
 ) -> Transcript:
-    session = context.db_session
     with open(file_path, "rb") as fp:
         m = hashlib.sha256()
         while chunk := fp.read(8192):
             m.update(chunk)
         sha256_hash = m.hexdigest()
+
+    with Session.begin() as session:
         stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
         if transcript := session.execute(stmt).scalar_one_or_none():
             _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
@@ -118,9 +113,79 @@ def _transcribe_file(
         supported_file_path = file_path
 
     # send the audio file to openai whisper, create a db entry and return it
-    with open(supported_file_path, "rb") as fp:
+    whisper_transcription = await get_whisper_transcription(supported_file_path)
+
+    with Session.begin() as session:
+        if transcript_language_str := whisper_transcription.language:
+            query = select(Language).where(func.regexp_like(Language.name, f"^{transcript_language_str.capitalize()}"))
+            transcript_language = session.execute(query).scalar_one_or_none()
+        else:
+            transcript_language = None
+
+        transcript = Transcript(
+            created_at=update.effective_message.date,
+            finished_at=dt.datetime.now(dt.UTC),
+            file_unique_id=voice_or_audio.file_unique_id,
+            file_id=voice_or_audio.file_id,
+            sha256_hash=sha256_hash,
+            duration=voice_or_audio.duration,
+            mime_type=voice_or_audio.mime_type,
+            file_size=voice_or_audio.file_size,
+            result=whisper_transcription.text,
+            input_language=transcript_language,
+        )
+        session.add(transcript)
+        session.flush()
+        return transcript
+
+
+@dataclass
+class WhisperTranscription:
+    text: str
+    language: str
+
+
+async def get_whisper_transcription(file_path: Path):
+    if file_path.stat().st_size > 24 * 1024 * 1024:
+        temp_dir = tempfile.TemporaryDirectory()
+        file_paths = split_audio(file_path, max_size_mb=24, output_dir=Path(temp_dir.name))
+    else:
+        temp_dir = None
+        file_paths = [file_path]
+
+    tasks = []
+    async with asyncio.TaskGroup() as tg:
+        for file_path in file_paths:
+            task = tg.create_task(get_whisper_transcription_async(file_path))
+            tasks.append(task)
+
+    languages = []
+    texts = []
+    for task in tasks:
+        transcription_result = task.result()
+        languages.append(transcription_result.model_extra.get("language"))
+        texts.append(transcription_result.text)
+
+    language_counter = Counter(languages)
+    try:
+        most_common_language = language_counter.most_common(1)[0][0]
+    except IndexError:
+        _logger.warning("Could not determine language of the transcription")
+        most_common_language = None
+
+    result = WhisperTranscription(text="\n".join(texts), language=most_common_language)
+
+    if temp_dir is not None:
+        temp_dir.cleanup()
+
+    return result
+
+
+async def get_whisper_transcription_async(file_path: Path):
+    aclient = AsyncOpenAI()
+    with open(file_path, "rb") as fp:
         try:
-            transcription_result = client.audio.transcriptions.create(
+            transcription_result = await aclient.audio.transcriptions.create(
                 model="whisper-1",
                 file=fp,
                 response_format="verbose_json",
@@ -128,31 +193,12 @@ def _transcribe_file(
         except BadRequestError:
             supported_file_path = transcode_ffmpeg(file_path)
             with open(supported_file_path, "rb") as fp:
-                transcription_result = client.audio.transcriptions.create(
+                transcription_result = await aclient.audio.transcriptions.create(
                     model="whisper-1",
                     file=fp,
                     response_format="verbose_json",
                 )
-    if transcript_language_str := transcription_result.model_extra.get("language"):
-        query = select(Language).where(func.regexp_like(Language.name, f"^{transcript_language_str.capitalize()}"))
-        transcript_language = session.execute(query).scalar_one_or_none()
-    else:
-        transcript_language = None
-
-    transcript = Transcript(
-        created_at=update.effective_message.date,
-        finished_at=dt.datetime.now(dt.UTC),
-        file_unique_id=voice_or_audio.file_unique_id,
-        file_id=voice_or_audio.file_id,
-        sha256_hash=sha256_hash,
-        duration=voice_or_audio.duration,
-        mime_type=voice_or_audio.mime_type,
-        file_size=voice_or_audio.file_size,
-        result=transcription_result.text,
-        input_language=transcript_language,
-    )
-    session.add(transcript)
-    return transcript
+    return transcription_result
 
 
 @session_context
@@ -226,10 +272,17 @@ def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> 
         else:
             markup = None
 
-        for i in range(0, len(transcript.result), MessageLimit.MAX_TEXT_LENGTH):
+        if len(transcript.result) >= MessageLimit.MAX_TEXT_LENGTH:
+            yield BotDocument(
+                chat_id=update.effective_chat.id,
+                reply_to_message_id=update.effective_message.id,
+                filename="transcript.txt",
+                document=transcript.result.encode("utf-8"),
+            )
+        else:
             yield BotMessage(
                 chat_id=update.effective_chat.id,
-                text=transcript.result[i : i + MessageLimit.MAX_TEXT_LENGTH],
+                text=transcript.result,
                 reply_markup=markup,
             )
         return
