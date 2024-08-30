@@ -9,6 +9,7 @@ from sqlalchemy import and_, extract, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from ..integrations import (
     _check_existing_transcript,
@@ -31,7 +32,7 @@ from ..models import (
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotMessage
 from .constants import RECEIVED_AUDIO_MESSAGE
-from .helpers import escape_markdown
+from .premium import get_subscription_keyboard
 
 # Enable logging
 _logger = getLogger(__name__)
@@ -183,11 +184,14 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         chat = session.get(TelegramChat, update.effective_chat.id)
 
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
+        subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
             await update.message.reply_markdown_v2(
                 escape_markdown(
-                    "⚠️ Maximum file size for non-premium is 10MB. Please send a smaller file or upgrade to `/premium`."
-                )
+                    "⚠️ Maximum file size for non-premium is 10MB. Please send a smaller file or upgrade to `/premium`.",
+                    2,
+                ),
+                reply_markup=subscription_keyboard,
             )
             return
         elif file_size > 25 * 1024 * 1024:
@@ -210,8 +214,10 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             await update.effective_message.reply_markdown_v2(
                 escape_markdown(
                     "⚠️ Sorry, you have reached the limit of 10 summaries per month. "
-                    "Please consider upgrading to `/premium` to get unlimited summaries."
-                )
+                    "Please consider upgrading to `/premium` to get unlimited summaries.",
+                    2,
+                ),
+                reply_markup=subscription_keyboard,
             )
             return
 
