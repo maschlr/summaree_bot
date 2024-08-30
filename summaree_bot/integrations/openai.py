@@ -28,15 +28,14 @@ client = OpenAI()
 __all__ = ["_check_existing_transcript", "_extract_file_name", "_transcribe_file", "_summarize", "_elaborate"]
 
 
-def transcode_to_mp3(file_path: Path) -> Path:
+def transcode_ffmpeg(file_path: Path) -> Path:
     _logger.info(f"Transcoding file: {file_path}")
-    # convert the .ogg file to .mp3 using ffmpeg
 
-    mp3_filepath = file_path.parent / f"{file_path.stem}.mp3"
-    run_args = ["ffmpeg", "-i", str(file_path), "-f", "mp3", str(mp3_filepath)]
+    output_filepath = file_path.parent / f"{file_path.stem}.m4a"
+    run_args = ["ffmpeg", "-i", str(file_path), "-c:a", "aac_he", "-b:a", "64k", str(output_filepath)]
     subprocess.run(run_args, capture_output=True)
-    _logger.info(f"Transcoding successfully finished: {mp3_filepath}")
-    return mp3_filepath
+    _logger.info(f"Transcoding successfully finished: {output_filepath}")
+    return output_filepath
 
 
 @session_context
@@ -114,7 +113,7 @@ def _transcribe_file(
         "wav",
         "webm",
     }:
-        supported_file_path = transcode_to_mp3(file_path)
+        supported_file_path = transcode_ffmpeg(file_path)
     else:
         supported_file_path = file_path
 
@@ -127,7 +126,7 @@ def _transcribe_file(
                 response_format="verbose_json",
             )
         except BadRequestError:
-            supported_file_path = transcode_to_mp3(file_path)
+            supported_file_path = transcode_ffmpeg(file_path)
             with open(supported_file_path, "rb") as fp:
                 transcription_result = client.audio.transcriptions.create(
                     model="whisper-1",
