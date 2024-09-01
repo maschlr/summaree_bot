@@ -56,7 +56,6 @@ def main() -> None:
             .arbitrary_callback_data(True)
             .pool_timeout(5)
             .concurrent_updates(True)
-            .get_updates_socket_options(retries=3)
             .build()
         )
     else:
@@ -136,6 +135,7 @@ def main() -> None:
             url_path=parsed_url.path[1:],  # omit the '/' at the beginning of the path
             secret_token=os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", ""),
             webhook_url=webhook_url,
+            bootstrap_retries=3,
         )
     else:
         post_init_fncs.append(["delete_webhook"])
