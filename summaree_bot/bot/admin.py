@@ -379,7 +379,10 @@ command_to_handler = {
 
 async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handler for the /help_admin command to list all admin commands."""
-    md_text = "\n".join(f"/{command}: {description}" for command, (_handler, description) in command_to_handler.items())
+    md_text = "\n".join(
+        f"/{escape_markdown(command, version=2)}: {description}"
+        for command, (_handler, description) in command_to_handler.items()
+    )
     msg = AdminChannelMessage(text=md_text, parse_mode=ParseMode.MARKDOWN_V2)
     await msg.send(context.bot)
 
