@@ -434,7 +434,10 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
 async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_msg = _successful_payment_callback(update, context)
     new_invoice_msg = AdminChannelMessage(
-        text=f"💸 Winner, winner, chicken dinner\! {update.effective_user.mention_markdown_v2()} just paid an invoice!",
+        text=(
+            "💸 Winner, winner, chicken dinner\! "
+            f"{update.effective_user.mention_markdown_v2()} just paid an invoice\!"
+        ),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
     async with asyncio.TaskGroup() as tg:
