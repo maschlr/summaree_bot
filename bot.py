@@ -56,6 +56,7 @@ def main() -> None:
             .arbitrary_callback_data(True)
             .pool_timeout(5)
             .concurrent_updates(True)
+            .get_updates_socket_options(retries=3)
             .build()
         )
     else:
