@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Mapping, Optional, Sequence, Union, cast
@@ -37,7 +38,7 @@ __all__ = [
     "get_sale_text",
 ]
 
-
+_logger = logging.getLogger(__name__)
 STRIPE_TOKEN = os.getenv("STRIPE_TOKEN", "Configure me in .env")
 PAYMENT_PAYLOAD_TOKEN = os.getenv("PAYMENT_PAYLOAD_TOKEN", "Configure me in .env")
 
@@ -292,6 +293,8 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         chat_id=chat_id,
         product_id=product.id,
         subscription=subscription,
+        total_amount=price,
+        currency=currency,
     )
     session.add(invoice)
     # w/o flush, invoice has no id
@@ -404,7 +407,8 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 def _successful_payment_callback(update: Update, context: DbSessionContext) -> BotMessage:
     """Confirms the successful payment."""
     context = cast(DbSessionContext, context)
-    if update.message is None or (payment := update.message.successful_payment) is None:
+    payment = update.message.successful_payment
+    if update.message is None or payment is None:
         raise ValueError("update.message.successful_payment is None")
 
     session = context.db_session
@@ -417,6 +421,12 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     invoice.status = InvoiceStatus.paid
     invoice.subscription.active = True
     invoice.subscription.status = SubscriptionStatus.active
+    invoice.provider_payment_charge_id = payment.provider_payment_charge_id
+    invoice.telegram_payment_charge_id = payment.telegram_payment_charge_id
+    invoice.paid_at = datetime.now(dt.UTC)
+    if payment.total_amount != invoice.total_amount:
+        invoice.total_amount = payment.total_amount
+        _logger.warning(f"Invoice amount {invoice.total_amount} != payment amount {payment.total_amount}")
 
     end_date_str = invoice.subscription.end_date.strftime("%x")
     lang_to_text = {

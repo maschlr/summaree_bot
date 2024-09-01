@@ -13,17 +13,7 @@ from telegram.ext import (
     filters,
 )
 
-from summaree_bot.bot.admin import (
-    activate_referral_code,
-    dataset,
-    deactivate_referral_code,
-    forward_msg,
-    get_file,
-    gift_premium,
-    list_referral_codes,
-    stats,
-    top,
-)
+from summaree_bot.bot.admin import command_to_handler
 from summaree_bot.bot.audio import transcribe_and_summarize
 from summaree_bot.bot.db import chat_migration
 from summaree_bot.bot.error import (
@@ -93,15 +83,11 @@ def main() -> None:
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if admin_chat_id is None:
         raise ValueError("ADMIN_CHAT_ID environment variable not set")
-    application.add_handler(CommandHandler("dataset", dataset, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("stats", stats, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("top", top, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("list", list_referral_codes, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("activate", activate_referral_code, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("deactivate", deactivate_referral_code, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("get_file", get_file, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("forward_msg", forward_msg, filters.Chat(int(admin_chat_id))))
-    application.add_handler(CommandHandler("gift", gift_premium, filters.Chat(int(admin_chat_id))))
+
+    # Admin channel commands
+    for command, (handler, _description) in command_to_handler.items():
+        application.add_handler(CommandHandler(command, handler, filters.Chat(int(admin_chat_id))))
+
     application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))

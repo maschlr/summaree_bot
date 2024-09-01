@@ -134,6 +134,20 @@ class TelegramUser(Base):
         """
         return f"[{(self.username or self.first_name)}]({self.tg_url})"
 
+    @classmethod
+    def get_by_id_or_username(cls, session: Session, user_id_or_username: str) -> Optional["TelegramUser"]:
+        try:
+            user_id = int(user_id_or_username)
+        except ValueError:
+            user_id = None
+            username = user_id_or_username
+
+        if user_id is not None:
+            stmt = select(cls).where(cls.id == user_id)
+        else:
+            stmt = select(cls).where(cls.username == username)
+        return session.execute(stmt).scalar_one_or_none()
+
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"
@@ -333,7 +347,6 @@ class Invoice(Base):
     description: Mapped[str] = mapped_column(default="Premium Features: Unlimited summaries, unlimited translations")
     tg_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_user.id"))
     tg_user: Mapped["TelegramUser"] = relationship(back_populates="invoices")
-    # TODO map with user email, send token and activate
     email: Mapped[Optional[str]]
 
     chat_id: Mapped[Optional[int]] = mapped_column(ForeignKey("telegram_chat.id"))
@@ -352,6 +365,7 @@ class Invoice(Base):
     telegram_payment_charge_id: Mapped[Optional[str]]
     currency: Mapped[Optional[str]]
     total_amount: Mapped[Optional[int]]
+    paid_at: Mapped[Optional[datetime]]
 
 
 class PremiumPeriod(enum.Enum):

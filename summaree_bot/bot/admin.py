@@ -13,13 +13,12 @@ from sqlalchemy import func, select
 from telegram import InputMediaPhoto, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
-from telegram.helpers import mention_html
+from telegram.helpers import escape_markdown, mention_html
 
 from ..integrations.openai import summary_prompt_file_path
-from ..models import Subscription, Summary, TelegramUser
+from ..models import Invoice, InvoiceStatus, Subscription, Summary, TelegramUser
 from ..models.session import DbSessionContext, session_context
 from . import AdminChannelMessage, BotDocument, BotMessage
-from .helpers import escape_markdown
 from .premium import create_subscription
 
 
@@ -193,13 +192,13 @@ async def activate_referral_code(update: Update, context: ContextTypes.DEFAULT_T
 def _activate_referral_code(update: Update, context: DbSessionContext) -> AdminChannelMessage:
     """Synchronous part of the /activate command."""
     session = context.db_session
-    stmt = (
-        select(TelegramUser)
-        .where(TelegramUser.username == context.args[0])
-        .where(TelegramUser.referral_token_active.is_(False))
-    )
-    user = session.execute(stmt).scalar_one_or_none()
-    if user is None:
+
+    try:
+        user = TelegramUser.get_by_id_or_username(session, context.args[0])
+    except IndexError:
+        return AdminChannelMessage(text="Usage: /activate <user_id_or_username>")
+
+    if user is None or user.referral_token_active:
         return AdminChannelMessage(
             text=(
                 f"User {context.args[0]} not found or referral code already activated. "
@@ -227,7 +226,7 @@ def _list_referral_codes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if users:
         prefix = "Active referral codes:\n"
-        body = "\n".join([f"\- {user.md_link}: {escape_markdown(user.referral_url)}" for user in users])
+        body = "\n".join([f"\- {user.md_link}: {escape_markdown(user.referral_url, version=2)}" for user in users])
 
         msg = AdminChannelMessage(
             text=prefix + body,
@@ -248,11 +247,12 @@ async def deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT
 def _deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> AdminChannelMessage:
     """Syncronous part of the /deactivate command"""
     session = context.db_session
-    stmt = (
-        select(TelegramUser).where(TelegramUser.username == context.args[0]).where(TelegramUser.referral_token_active)
-    )
-    user = session.execute(stmt).scalar_one_or_none()
-    if user is None:
+    try:
+        user = TelegramUser.get_by_id_or_username(session, context.args[0])
+    except IndexError:
+        return AdminChannelMessage(text="Usage: /deactivate <user_id_or_username>")
+
+    if user is None or not user.referral_token_active:
         return AdminChannelMessage(
             text=(
                 f"User {context.args[0]} not found or referral code not active. "
@@ -261,7 +261,7 @@ def _deactivate_referral_code(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     user.referral_token_active = False
 
-    return AdminChannelMessage(text=f"Referral code deactivated for {user.username}")
+    return AdminChannelMessage(text=f"Referral code deactivated for {user.md_link}", parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def get_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -322,3 +322,66 @@ def _gift_premium(
         text=f"Premium gifted to {mention_html(user.id, user.username or user.first_name)} until {sub_end_date_str}",
         parse_mode=ParseMode.HTML,
     )
+
+
+async def list_invoices(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler for the /list_invoices command to list all invoices."""
+    msg = _list_invoices(update, context)
+    await msg.send(context.bot)
+
+
+@session_context
+def _list_invoices(update: Update, context: DbSessionContext) -> AdminChannelMessage:
+    """Synchronous part of the /list_invoices command to list all invoices."""
+    invoice_stmt = (
+        select(Invoice).where(Invoice.status == InvoiceStatus.paid).order_by(Invoice.paid_at.desc()).limit(50)
+    )
+    invoices = context.db_session.execute(invoice_stmt).scalars().all()
+    table = pt.PrettyTable(["ID", "User", "UserID", "ChannelID", "Amount", "Paid At"])
+    table.align["ID"] = "r"
+    table.align["User"] = "l"
+    table.align["UserID"] = "l"
+    table.align["ChannelID"] = "l"
+    table.align["Amount"] = "r"
+    table.align["Paid At"] = "l"
+
+    for invoice in invoices:
+        table.add_row(
+            [
+                invoice.id,
+                invoice.tg_user.username or invoice.tg_user.first_name,
+                invoice.tg_user.id,
+                invoice.subscription.chat.id,
+                invoice.total_amount,
+                invoice.paid_at,
+            ]
+        )
+
+    return AdminChannelMessage(text=f"```{table}```", parse_mode=ParseMode.MARKDOWN_V2)
+
+
+command_to_handler = {
+    "dataset": (dataset, r"Download the full dataset"),
+    "stats": (stats, r"Show usage stats"),
+    "top": (top, r"Show top users"),
+    "list_referrals": (list_referral_codes, r"List all active referral codes"),
+    "activate": (activate_referral_code, r"Activate a referral code\. Usage: `/activate <user_id_or_username>`"),
+    "deactivate": (
+        deactivate_referral_code,
+        r"Deactivate a referral code\. Usage: `/deactivate <user_id_or_username>`",
+    ),
+    "get_file": (get_file, r"Get a file from the bot\. Usage: `/get_file <file_id>`"),
+    "forward_msg": (forward_msg, r"Forward a message to the admin chat\. Usage: `/forward <chat_id> <message_id>`"),
+    "gift": (gift_premium, r"Gift premium to a user\. Usage: `/gift <user_id_or_username> <days>`"),
+    "list_invoices": (list_invoices, r"List all paid invoices"),
+}
+
+
+async def help_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler for the /help_admin command to list all admin commands."""
+    md_text = "\n".join(f"/{command}: {description}" for command, (_handler, description) in command_to_handler.items())
+    msg = AdminChannelMessage(text=md_text, parse_mode=ParseMode.MARKDOWN_V2)
+    await msg.send(context.bot)
+
+
+command_to_handler["helpadmin"] = (help_admin, "List all admin commands")
