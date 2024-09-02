@@ -3,20 +3,18 @@ import datetime
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Coroutine, cast
+from typing import Any, Coroutine, Generator, cast
 
 import magic
 from sqlalchemy import and_, extract, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ChatAction, ParseMode
+from telegram.constants import ChatAction, MessageLimit, ParseMode
 from telegram.ext import ContextTypes
-from telegram.helpers import escape_markdown
 from telethon.sync import TelegramClient as TelethonClient
 from tqdm.asyncio import tqdm
 
 from ..integrations import (
     _check_existing_transcript,
-    _elaborate,
     _extract_file_name,
     _summarize,
     _translate_topic,
@@ -33,8 +31,8 @@ from ..models import (
     Transcript,
 )
 from ..models.session import DbSessionContext, Session, session_context
-from . import AdminChannelMessage, BotMessage
-from .constants import RECEIVED_AUDIO_MESSAGE
+from . import AdminChannelMessage, BotDocument, BotMessage
+from .constants import LANG_TO_RECEIVED_AUDIO_MESSAGE
 from .premium import get_subscription_keyboard
 
 # Enable logging
@@ -68,49 +66,62 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 transcript = await transcribe_file(update, context, file_path, voice_or_audio)
 
         summary = _summarize(update, context, transcript)
-
         bot_msg = _get_summary_message(update, context, summary)
+        chat = session.get(TelegramChat, update.effective_chat.id)
 
-        # add button for elaboration
-        lang_to_button_text = {
-            "en": ["📖 Full transcript", "🪄 Give me more"],
-            "de": ["📖 Volles Transcript", "🪄 Mehr Kontext"],
-            "es": ["📖 Transcripción completa", "🪄 Más contexto"],
-            "ru": ["📖 Полный транскрипт", "🪄 Больше контекста"],
+        lang_to_transcript = {
+            "en": "Transcript",
+            "de": "Transkript",
+            "es": "Transcripción",
+            "ru": "Транскрипт",
         }
-        button_texts = lang_to_button_text.get(update.effective_user.language_code, lang_to_button_text["en"])
-        buttons = [
-            InlineKeyboardButton(
-                button_texts[0],
-                callback_data={
-                    "fnc": "elaborate",
-                    "kwargs": {"transcript_id": summary.transcript_id},
-                },
-            ),
-            InlineKeyboardButton(
-                button_texts[1],
-                callback_data={
-                    "fnc": "elaborate",
-                    "kwargs": {"summary_id": summary.id},
-                },
-            ),
-        ]
-        bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
+        transcript_button_text = lang_to_transcript.get(update.effective_user.language_code, lang_to_transcript["en"])
+        emoji = "📝" if summary.transcript.input_language is None else summary.transcript.input_language.flag_emoji
+        # if transcript language is None or chat language, show only one button
+        if summary.transcript.input_language is None or summary.transcript.input_language == chat.language:
+            button = [
+                InlineKeyboardButton(
+                    f"{emoji} {transcript_button_text}",
+                    callback_data={
+                        "fnc": "full_transcript",
+                        "kwargs": {"transcript_id": summary.transcript_id},
+                    },
+                ),
+            ]
+            bot_msg.reply_markup = InlineKeyboardMarkup([button])
+        else:
+            buttons = [
+                InlineKeyboardButton(
+                    f"{emoji} {transcript_button_text}",
+                    callback_data={
+                        "fnc": "full_transcript",
+                        "kwargs": {"transcript_id": summary.transcript_id},
+                    },
+                ),
+                InlineKeyboardButton(
+                    f"{chat.language.flag_emoji} {transcript_button_text}",
+                    callback_data={
+                        "fnc": "full_transcript",
+                        "kwargs": {"transcript_id": summary.transcript_id, "translate": True},
+                    },
+                ),
+            ]
+            bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
 
     return bot_msg
 
 
-async def download_large_file(chat_id, message_id, destination):
+async def download_large_file(chat_id: int, message_id: int, filepath: Path):
     client = TelethonClient("bot", os.environ["TELEGRAM_API_ID"], os.environ["TELEGRAM_API_HASH"])
     try:
         await client.start(bot_token=os.environ["TELEGRAM_BOT_TOKEN"])
         message = await client.get_messages(chat_id, ids=message_id)
         if message.file:
             _logger.info("Downloading large file")
-            with open(destination, "wb") as fp:
+            with open(filepath, "wb") as fp:
                 async for chunk in tqdm(client.iter_download(message)):
                     fp.write(chunk)
-            print(f"File saved to {destination}")
+            print(f"File saved to {filepath}")
         else:
             print("This message does not contain a file")
     finally:
@@ -178,7 +189,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     return BotMessage(chat_id=update.effective_chat.id, text=text)
 
 
-async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
+async def full_transcript_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
 
@@ -189,8 +200,49 @@ async def elaborate(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
 
     await wait_msg.delete()
-    for bot_msg in _elaborate(update, context, **kwargs):
+    for bot_msg in _full_transcript_callback(update, context, **kwargs):
         await bot_msg.send(context.bot)
+
+
+@session_context
+def _full_transcript_callback(update: Update, context: DbSessionContext, **kwargs) -> Generator[BotMessage, None, None]:
+    if update.effective_chat is None:
+        raise ValueError("The update must contain a chat.")
+    elif not {"transcript_id"} & kwargs.keys():
+        raise ValueError("transcript_id must be given in kwargs.")
+
+    session = context.db_session
+
+    transcript_id = kwargs.get("transcript_id")
+    translate_transcript = kwargs.get("translate", False)
+    if transcript_id is None:
+        raise ValueError("transcript_id must be given in kwargs.")
+
+    transcript = session.get(Transcript, transcript_id)
+    if transcript is None:
+        raise ValueError(f"Could not find transcript with id {transcript_id}")
+    chat = session.get(TelegramChat, update.effective_chat.id)
+    if chat is None:
+        raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
+
+    if translate_transcript:
+        text = _translate_text(transcript.result, chat.language)
+    else:
+        text = transcript.result
+
+    if len(text) >= MessageLimit.MAX_TEXT_LENGTH:
+        yield BotDocument(
+            chat_id=update.effective_chat.id,
+            reply_to_message_id=update.effective_message.id,
+            filename="transcript.txt",
+            document=text.encode("utf-8"),
+        )
+    else:
+        yield BotMessage(
+            chat_id=update.effective_chat.id,
+            text=text,
+        )
+    return
 
 
 async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -209,21 +261,18 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
             lang_to_text = {
-                "en": "⚠️ Maximum file size for non-premium is 10MB. "
-                "Please send a smaller file or upgrade to `/premium`.",
-                "de": "⚠️ Die maximale Dateigröße für Nicht-Premium-Nutzer beträgt 10MB. "
-                "Bitte senden Sie eine kleinere Datei oder aktualisieren Sie Ihre Premium-Lizenz.",
-                "es": "⚠️ El tamaño máximo de archivo para no-premium es de 10MB. "
-                "Envíe un archivo más pequeño o actualice a `/premium`.",
-                "ru": "⚠️ Максимальный размер файла для не-премиум составляет 10MB. "
-                "Отправьте меньший файл или обновитесь до `/premium`.",
+                "en": r"⚠️ Maximum file size for non-premium is 10MB\. "
+                r"Please send a smaller file or upgrade to `/premium`\.",
+                "de": r"⚠️ Die maximale Dateigröße für Nicht-Premium-Nutzer beträgt 10MB\. "
+                r"Bitte senden Sie eine kleinere Datei oder aktualisieren Sie Ihre Premium-Lizenz\.",
+                "es": r"⚠️ El tamaño máximo de archivo para no-premium es de 10MB\. "
+                r"Envíe un archivo más pequeño o actualice a `/premium`\.",
+                "ru": r"⚠️ Максимальный размер файла для не-премиум составляет 10MB\. "
+                r"Отправьте меньший файл или обновитесь до `/premium`\.",
             }
             text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
             await update.message.reply_markdown_v2(
-                escape_markdown(
-                    text,
-                    2,
-                ),
+                text,
                 reply_markup=subscription_keyboard,
             )
             return
@@ -238,27 +287,24 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         )
         if len(summaries_this_month) >= 10 and not chat.is_premium_active:
             lang_to_text = {
-                "en": "⚠️ Sorry, you have reached the limit of 10 summaries per month. "
-                "Please consider upgrading to `/premium` to get unlimited summaries.",
-                "de": "⚠️ Sorry, du hast die Grenze von 10 Zusammenfassungen pro Monat erreicht. "
-                "Mit Premium erhälts du eine unbegrenzte Anzahl an Zusammenfassungen",
-                "es": "⚠️ Lo sentimos, has alcanzado el límite de 10 resúmenes al mes. "
-                "Considere actualizar a `/premium` para obtener resúmenes ilimitados.",
-                "ru": "⚠️ Извините, вы достигли ограничения в 10 резюме в месяц. "
-                "Пожалуйста, рассмотрите возможность обновления до `/premium` для получения неограниченных резюме.",
+                "en": r"⚠️ Sorry, you have reached the limit of 10 summaries per month\. "
+                r"Please consider upgrading to `/premium` to get unlimited summaries\.",
+                "de": r"⚠️ Sorry, du hast die Grenze von 10 Zusammenfassungen pro Monat erreicht\. "
+                r"Mit Premium erhälts du eine unbegrenzte Anzahl an Zusammenfassungen\.",
+                "es": r"⚠️ Lo sentimos, has alcanzado el límite de 10 resúmenes al mes\. "
+                r"Considere actualizar a `/premium` para obtener resúmenes ilimitados\.",
+                "ru": r"⚠️ Извините, вы достигли ограничения в 10 резюме в месяц\. "
+                r"Пожалуйста, рассмотрите возможность обновления до `/premium` для получения неограниченных резюме\.",
             }
             text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
             await update.effective_message.reply_markdown_v2(
-                escape_markdown(
-                    text,
-                    2,
-                ),
+                text,
                 reply_markup=subscription_keyboard,
             )
             return
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
-    text = RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, RECEIVED_AUDIO_MESSAGE["en"])
+    text = LANG_TO_RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, LANG_TO_RECEIVED_AUDIO_MESSAGE["en"])
     async with asyncio.TaskGroup() as tg:
         start_msg_task = tg.create_task(update.message.reply_text(text))
         bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
@@ -283,51 +329,3 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         tg.create_task(start_message.delete())
         tg.create_task(bot_response_msg.send(context.bot))
         tg.create_task(new_summary_msg.send(context.bot))
-
-
-@session_context
-def _translate_transcript(update: Update, context: DbSessionContext, transcript_id: int) -> BotMessage:
-    """Find transscript in the database and return a BotMessage with the translation"""
-    session = context.db_session
-
-    transcript = session.get(Transcript, transcript_id)
-    if transcript is None:
-        raise ValueError(f"Transcript with ID {transcript_id} not found.")
-
-    chat = session.get(TelegramChat, update.effective_chat.id)
-    if chat is None:
-        raise ValueError(f"Chat with ID {update.effective_chat.id} not found.")
-    target_language = chat.language
-
-    # TODO: create DB model for text translated transcripts to avoid calling the API
-    # Before: see if this is indeed called repeatedly
-    translation = _translate_text(transcript.result, target_language)
-
-    bot_msg = BotMessage(
-        chat_id=update.effective_chat.id,
-        text=translation,
-    )
-
-    return bot_msg
-
-
-async def translate_transcript(update: Update, context: ContextTypes.DEFAULT_TYPE, transcript_id: int) -> None:
-    """Callback function to translate a transcript when button is clicked"""
-    if update.effective_chat is None:
-        raise ValueError("The update must contain a chat.")
-
-    async with asyncio.TaskGroup() as tg:
-        process_msg_task = tg.create_task(
-            update.effective_message.reply_text(
-                "📝 Received your request.\n☕ Translating your transcript...\n⏳ Please wait a moment.",
-            )
-        )
-        tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
-
-    process_msg = process_msg_task.result()
-    bot_msg = _translate_transcript(update, context, transcript_id=transcript_id)
-
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(update.effective_message.edit_reply_markup(reply_markup=None))
-        tg.create_task(process_msg.delete())
-        tg.create_task(bot_msg.send(context.bot))

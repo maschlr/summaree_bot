@@ -1,7 +1,7 @@
 UI_TRANSLATION_IETF_TAGS = {"ru", "es", "de"}
 FREE_LANGUAGE_IETF_TAGS = UI_TRANSLATION_IETF_TAGS | {"en"}
 
-RECEIVED_AUDIO_MESSAGE = {
+LANG_TO_RECEIVED_AUDIO_MESSAGE = {
     "en": ("🎧 Received your voice/audio message.\n☕ Transcribing and summarizing...\n⏳ Please wait a moment."),
     "ru": (
         "🎧 Получен ваш голосовой/аудиосообщение.\n"

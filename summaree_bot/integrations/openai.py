@@ -9,21 +9,18 @@ import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Optional, Union, cast
+from typing import Optional, Union, cast
 
 import telegram
 from openai import AsyncOpenAI, BadRequestError, OpenAI
 from sqlalchemy import func, select
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import MessageLimit
 from telegram.ext import ContextTypes
 
-from ..bot import BotDocument, BotMessage, ensure_chat
+from ..bot import ensure_chat
 from ..bot.helpers import has_non_ascii
-from ..models import Language, Summary, TelegramChat, Topic, Transcript
+from ..models import Language, Summary, Topic, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from .audio import split_audio, transcode_ffmpeg
-from .deepl import translator
 
 _logger = logging.getLogger(__name__)
 
@@ -31,7 +28,7 @@ mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
 client = OpenAI()
 
-__all__ = ["_check_existing_transcript", "_extract_file_name", "transcribe_file", "_summarize", "_elaborate"]
+__all__ = ["_check_existing_transcript", "_extract_file_name", "transcribe_file", "_summarize"]
 
 
 @session_context
@@ -245,92 +242,6 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     )
     session.add(summary)
     return summary
-
-
-@session_context
-def _elaborate(update: telegram.Update, context: DbSessionContext, **kwargs) -> Generator[BotMessage, None, None]:
-    if update.effective_chat is None:
-        raise ValueError("The update must contain a chat.")
-    elif not {"transcript_id", "summary_id"} & kwargs.keys():
-        raise ValueError("Either transcript_id or summary_id must be given in kwargs.")
-
-    session = context.db_session
-
-    transcript_id = kwargs.get("transcript_id")
-    if transcript_id is not None:
-        # return the full transcript
-        transcript = session.get(Transcript, transcript_id)
-        if transcript is None:
-            raise ValueError(f"Could not find transcript with id {transcript_id}")
-        # if transcript language is not chat language, show a button to translate it
-        chat = session.get(TelegramChat, update.effective_chat.id)
-        if chat is None:
-            raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
-
-        if chat.language != transcript.input_language:
-            buttons = [
-                InlineKeyboardButton(
-                    f"{chat.language.flag_emoji} Translate",
-                    callback_data={"fnc": "translate_transcript", "kwargs": {"transcript_id": transcript_id}},
-                )
-            ]
-            markup = InlineKeyboardMarkup([buttons])
-        else:
-            markup = None
-
-        if len(transcript.result) >= MessageLimit.MAX_TEXT_LENGTH:
-            yield BotDocument(
-                chat_id=update.effective_chat.id,
-                reply_to_message_id=update.effective_message.id,
-                filename="transcript.txt",
-                document=transcript.result.encode("utf-8"),
-            )
-        else:
-            yield BotMessage(
-                chat_id=update.effective_chat.id,
-                text=transcript.result,
-                reply_markup=markup,
-            )
-        return
-
-    summary_id = kwargs.get("summary_id")
-    summary = session.get(Summary, summary_id)
-    if summary is None:
-        raise ValueError(f"Could not find summary with id {summary_id}")
-
-    with open(Path(__file__).parent / "data" / "elaborate.txt") as fp:
-        system_msg = fp.read().strip()
-
-    topic_str = r"\n".join(f"- {topic.text}" for topic in summary.topics)
-    messages = [
-        {"role": "system", "content": system_msg},
-        {
-            "role": "user",
-            "content": f"""
-Transcript:
-{summary.transcript.result}
-
-Topics:
-{topic_str}
-""",
-        },
-    ]
-
-    elaboration_result = client.chat.completions.create(model="gpt-4o-mini", messages=messages, temperature=0)
-    [choice] = elaboration_result.choices
-    chat = session.get(TelegramChat, update.effective_chat.id)
-    en_msg = choice.message.content
-    if chat is None or chat.language.ietf_tag == "en":
-        msg = en_msg
-    else:
-        deepl_result = translator.translate_text(en_msg, target_lang=chat.language.code)
-        msg = deepl_result.text
-
-    for i in range(0, len(msg), MessageLimit.MAX_TEXT_LENGTH):
-        yield BotMessage(
-            chat_id=update.effective_chat.id,
-            text=msg[i : i + MessageLimit.MAX_TEXT_LENGTH],
-        )
 
 
 def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retries: int = 2) -> dict:

@@ -4,11 +4,11 @@ from typing import Any, Callable, cast
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .audio import elaborate, translate_transcript
+from .audio import full_transcript_callback
 from .premium import payment_callback
 from .user import demo, set_lang_callback
 
-__all__ = ["remove_inline_keyboard", "dispatch_callback"]
+__all__ = ["remove_inline_keyboard", "dispatch_callback", "full_transcript_callback"]
 
 
 async def remove_inline_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -36,8 +36,7 @@ async def dispatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "remove_inline_keyboard": remove_inline_keyboard,
         "buy_or_extend_subscription": payment_callback,
         "set_lang": set_lang_callback,
-        "elaborate": elaborate,
-        "translate_transcript": translate_transcript,
+        "full_transcript": full_transcript_callback,
         "demo": demo,
     }
     fnc: Callable = callback_fnc_mapping[fnc_key]
