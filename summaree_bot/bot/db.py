@@ -19,19 +19,33 @@ def ensure_chat(fnc):
         update = kwargs.get("update", args[0])
         context = kwargs.get("context", args[1])
         session = context.db_session
-
-        if not (tg_user := session.get(TelegramUser, update.effective_user.id)):
-            attrs = [
-                "id",
-                "first_name",
-                "last_name",
-                "username",
-                "language_code",
-                "is_premium",
-                "is_bot",
-            ]
-            tg_user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in attrs}
-
+        user_attrs = [
+            "id",
+            "first_name",
+            "last_name",
+            "username",
+            "language_code",
+            "is_premium",
+            "is_bot",
+        ]
+        tg_user_kwargs = {attr: getattr(update.effective_user, attr, None) for attr in user_attrs}
+        if tg_user := session.get(TelegramUser, update.effective_user.id):
+            updates = {}
+            for name, value in tg_user_kwargs.items():
+                if (old_value := getattr(tg_user, name)) != value:
+                    updates[name] = (old_value, value)
+                    setattr(tg_user, name, value)
+            if updates:
+                change_lines = "\n".join(
+                    f"{name}: {old_value} -> {value}" for name, (old_value, value) in updates.items()
+                )
+                update_text = f"```\n{change_lines}\n```"
+                context.bot_data["message_queue"].appendleft(
+                    AdminChannelMessage(
+                        text=f"User updated: {tg_user.md_link}:\n\n{update_text}", parse_mode=ParseMode.MARKDOWN_V2
+                    )
+                )
+        else:
             tg_user = TelegramUser(**tg_user_kwargs)
             session.add(tg_user)
 
