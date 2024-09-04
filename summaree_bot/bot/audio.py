@@ -10,6 +10,7 @@ from sqlalchemy import and_, extract, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, MessageLimit, ParseMode
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 from telethon.sync import TelegramClient as TelethonClient
 from tqdm.asyncio import tqdm
 
@@ -78,7 +79,9 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         transcript_button_text = lang_to_transcript.get(update.effective_user.language_code, lang_to_transcript["en"])
         emoji = "📝" if summary.transcript.input_language is None else summary.transcript.input_language.flag_emoji
         # if transcript language is None or chat language, show only one button
-        if summary.transcript.input_language is None or summary.transcript.input_language == chat.language:
+        if not bot_msg.text:
+            [bot_msg] = list(_full_transcript_callback(update, context, summary.transcript_id, translate=False))
+        elif summary.transcript.input_language is None or summary.transcript.input_language == chat.language:
             button = [
                 InlineKeyboardButton(
                     f"{emoji} {transcript_button_text}",
@@ -205,16 +208,13 @@ async def full_transcript_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 @session_context
-def _full_transcript_callback(update: Update, context: DbSessionContext, **kwargs) -> Generator[BotMessage, None, None]:
+def _full_transcript_callback(
+    update: Update, context: DbSessionContext, transcript_id: int, translate: bool = False
+) -> Generator[BotMessage, None, None]:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
-    elif not {"transcript_id"} & kwargs.keys():
-        raise ValueError("transcript_id must be given in kwargs.")
 
     session = context.db_session
-
-    transcript_id = kwargs.get("transcript_id")
-    translate_transcript = kwargs.get("translate", False)
     if transcript_id is None:
         raise ValueError("transcript_id must be given in kwargs.")
 
@@ -225,22 +225,32 @@ def _full_transcript_callback(update: Update, context: DbSessionContext, **kwarg
     if chat is None:
         raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
 
-    if translate_transcript:
-        text = _translate_text(transcript.result, chat.language)
+    if translate:
+        transcript_text = _translate_text(transcript.result, chat.language)
     else:
-        text = transcript.result
+        transcript_text = transcript.result
 
-    if len(text) >= MessageLimit.MAX_TEXT_LENGTH:
+    if len(transcript_text) >= MessageLimit.MAX_TEXT_LENGTH:
         yield BotDocument(
             chat_id=update.effective_chat.id,
             reply_to_message_id=update.effective_message.id,
             filename="transcript.txt",
-            document=text.encode("utf-8"),
+            document=transcript_text.encode("utf-8"),
         )
     else:
+        emoji = chat.language.flag_emoji if translate else transcript.input_language.flag_emoji
+        lang_to_text = {
+            "en": f"*📜 Full transcript in {emoji}:*\n\n",
+            "de": f"*📜 Vollständiges Transcript in {emoji}:*\n\n",
+            "es": f"*📜 Transcripción completa en {emoji}:*\n\n",
+            "ru": f"*📜 Полный транскрипт на {emoji}:*\n\n",
+        }
+        heading_text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
+        text = heading_text + f"_{escape_markdown(transcript_text, version=2)}_"
         yield BotMessage(
             chat_id=update.effective_chat.id,
             text=text,
+            parse_mode=ParseMode.MARKDOWN_V2,
         )
     return
 
