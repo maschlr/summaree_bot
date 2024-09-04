@@ -27,6 +27,7 @@ from ..models import (
     Language,
     Summary,
     TelegramChat,
+    TelegramUser,
     Topic,
     TopicTranslation,
     Transcript,
@@ -267,6 +268,8 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
+        user = session.get(TelegramUser, update.effective_user.id)
+        n_summaries = len(user.summaries)
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
@@ -274,7 +277,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 "en": r"⚠️ Maximum file size for non-premium is 10MB\. "
                 r"Please send a smaller file or upgrade to `/premium`\.",
                 "de": r"⚠️ Die maximale Dateigröße für Nicht-Premium-Nutzer beträgt 10MB\. "
-                r"Bitte senden Sie eine kleinere Datei oder aktualisieren Sie Ihre Premium-Lizenz\.",
+                r"Bitte sende eine kleinere Datei oder aktualisiere `/premium`\.",
                 "es": r"⚠️ El tamaño máximo de archivo para no-premium es de 10MB\. "
                 r"Envíe un archivo más pequeño o actualice a `/premium`\.",
                 "ru": r"⚠️ Максимальный размер файла для не-премиум составляет 10MB\. "
@@ -325,11 +328,14 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
 
     try:
         text = (
-            f"📝 New summary created in chat {update.effective_chat.mention_markdown_v2()}"
+            f"📝 Summary \#{n_summaries + 1} created in chat {update.effective_chat.mention_markdown_v2()}"
             f" by user {update.effective_user.mention_markdown_v2()}"
         )
     except TypeError:
-        text = f"📝 New summary created by user {update.effective_user.mention_markdown_v2()} \(in private chat\)"
+        text = (
+            f"📝 Summary \#{n_summaries + 1} created by user "
+            f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
+        )
     new_summary_msg = AdminChannelMessage(
         text=text,
         parse_mode=ParseMode.MARKDOWN_V2,
