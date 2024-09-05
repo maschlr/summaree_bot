@@ -239,7 +239,13 @@ def _full_transcript_callback(
             document=transcript_text.encode("utf-8"),
         )
     else:
-        emoji = chat.language.flag_emoji if translate else transcript.input_language.flag_emoji
+        emoji = (
+            chat.language.flag_emoji
+            if translate
+            else transcript.input_language.flag_emoji
+            if transcript.input_language
+            else "❔"
+        )
         lang_to_text = {
             "en": f"*📜 Full transcript in {emoji}:*\n\n",
             "de": f"*📜 Vollständiges Transcript in {emoji}:*\n\n",
