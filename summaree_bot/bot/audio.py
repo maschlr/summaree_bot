@@ -279,7 +279,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
         user = session.get(TelegramUser, update.effective_user.id)
-        n_summaries = len(user.summaries)
+        n_summaries = len(user.summaries) if user else 0
         file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
