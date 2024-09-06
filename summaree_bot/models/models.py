@@ -11,6 +11,7 @@ from sqlalchemy import Column, Date, ForeignKey, MetaData, Table, cast, func, se
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.types import BigInteger
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from ..utils import url
 from .session import Session as SessionContext
@@ -132,7 +133,7 @@ class TelegramUser(Base):
         Generate a markdown link for a user.
         https://core.telegram.org/bots/api#markdownv2-style
         """
-        return f"[{(self.username or self.first_name)}]({self.tg_url})"
+        return f"[{escape_markdown(self.username or self.first_name, version=2)}]({self.tg_url})"
 
     @classmethod
     def get_by_id_or_username(cls, session: Session, user_id_or_username: str) -> Optional["TelegramUser"]:
