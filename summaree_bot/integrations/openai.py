@@ -1,7 +1,6 @@
 import asyncio
 import datetime as dt
 import hashlib
-import json
 import logging
 import os
 import re
@@ -9,12 +8,12 @@ import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 
 import telegram
 from openai import AsyncOpenAI, BadRequestError, OpenAI
+from pydantic import BaseModel
 from sqlalchemy import func, select
-from telegram.constants import ReactionEmoji
 from telegram.ext import ContextTypes
 
 from ..bot import ensure_chat
@@ -26,11 +25,15 @@ from .audio import split_audio, transcode_ffmpeg
 _logger = logging.getLogger(__name__)
 
 mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
-summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
 client = OpenAI()
 aclient = AsyncOpenAI()
 
-__all__ = ["_check_existing_transcript", "_extract_file_name", "transcribe_file", "_summarize"]
+__all__ = [
+    "_check_existing_transcript",
+    "_extract_file_name",
+    "transcribe_file",
+    "_summarize",
+]
 
 
 @session_context
@@ -44,7 +47,10 @@ def _check_existing_transcript(
     session = context.db_session
     if session is None:
         raise ValueError("There should be a session attached to context")
-    voice_or_audio = cast(Union[telegram.Voice, telegram.Audio], (update.message.voice or update.message.audio))
+    voice_or_audio = cast(
+        Union[telegram.Voice, telegram.Audio],
+        (update.message.voice or update.message.audio),
+    )
     file_unique_id = voice_or_audio.file_unique_id
 
     stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
@@ -90,8 +96,6 @@ async def transcribe_file(
     with Session.begin() as session:
         stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
         if transcript := session.execute(stmt).scalar_one_or_none():
-            if transcript.reaction_emoji is None:
-                transcript.reaction_emoji = await get_emoji(transcript.result)
             _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
             return transcript
 
@@ -101,7 +105,10 @@ async def transcribe_file(
         or update.effective_user is None
     ):
         raise ValueError("The update must contain a voice or audio message (and an effective_user).")
-    voice_or_audio = cast(Union[telegram.Voice, telegram.Audio], (update.message.voice or update.message.audio))
+    voice_or_audio = cast(
+        Union[telegram.Voice, telegram.Audio],
+        (update.message.voice or update.message.audio),
+    )
 
     # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
     if file_path.suffix[1:] not in {
@@ -129,7 +136,6 @@ async def transcribe_file(
         else:
             transcript_language = None
 
-        reaction_emoji = await get_emoji(whisper_transcription.text)
         transcript = Transcript(
             created_at=update.effective_message.date,
             finished_at=dt.datetime.now(dt.UTC),
@@ -141,7 +147,6 @@ async def transcribe_file(
             file_size=voice_or_audio.file_size,
             result=whisper_transcription.text,
             input_language=transcript_language,
-            reaction_emoji=reaction_emoji,
         )
         session.add(transcript)
         session.flush()
@@ -218,22 +223,13 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
     if transcript.summary is not None:
         return transcript.summary
 
-    with open(summary_prompt_file_path) as fp:
-        system_msg = fp.read()
-
-    user_message = transcript.result
-    messages = [
-        {"role": "system", "content": system_msg},
-        {"role": "user", "content": user_message},
-    ]
-
     created_at = dt.datetime.now(dt.UTC)
-    summary_data = get_openai_chatcompletion(messages)
+    summary_response = get_openai_chatcompletion(transcript.result)
 
-    if transcript.input_language is None:
-        language_stmt = select(Language).where(Language.ietf_tag == summary_data["language"])
+    if transcript.input_language is None or transcript.input_language.ietf_tag != summary_response.ietf_language_tag:
+        language_stmt = select(Language).where(Language.ietf_tag == summary_response.ietf_language_tag)
         if not (language := session.scalars(language_stmt).one_or_none()):
-            _logger.warning(f"Could not find language with ietf_tag {summary_data['language']}")
+            _logger.warning(f"Could not find language with ietf_tag {summary_response.ietf_language_tag}")
         else:
             transcript.input_language = language
 
@@ -241,78 +237,152 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         created_at=created_at,
         finished_at=dt.datetime.now(dt.UTC),
         transcript=transcript,
-        topics=[Topic(text=text, order=i) for i, text in enumerate(summary_data["topics"], start=1)],
+        topics=[Topic(text=text, order=i) for i, text in enumerate(summary_response.topics, start=1)],
         tg_user_id=update.effective_user.id,
         tg_chat_id=update.effective_chat.id,
     )
+    transcript.reaction_emoji = summary_response.emoji
+    transcript.hashtags = summary_response.hashtags
+
     session.add(summary)
     return summary
 
 
-def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retries: int = 2) -> dict:
+class SummaryResponse(BaseModel):
+    ietf_language_tag: Literal[
+        "bg",
+        "cs",
+        "da",
+        "de",
+        "el",
+        "es",
+        "et",
+        "fi",
+        "fr",
+        "hu",
+        "id",
+        "it",
+        "ja",
+        "ko",
+        "lt",
+        "lv",
+        "nb",
+        "nl",
+        "pl",
+        "ro",
+        "ru",
+        "sk",
+        "sl",
+        "sv",
+        "tr",
+        "uk",
+        "zh",
+        "en",
+        "pt",
+    ]
+    topics: list[str]
+    emoji: Literal[
+        "THUMBS_UP",
+        "THUMBS_DOWN",
+        "RED_HEART",
+        "FIRE",
+        "SMILING_FACE_WITH_HEARTS",
+        "CLAPPING_HANDS",
+        "GRINNING_FACE_WITH_SMILING_EYES",
+        "THINKING_FACE",
+        "SHOCKED_FACE_WITH_EXPLODING_HEAD",
+        "FACE_SCREAMING_IN_FEAR",
+        "SERIOUS_FACE_WITH_SYMBOLS_COVERING_MOUTH",
+        "CRYING_FACE",
+        "PARTY_POPPER",
+        "GRINNING_FACE_WITH_STAR_EYES",
+        "FACE_WITH_OPEN_MOUTH_VOMITING",
+        "PILE_OF_POO",
+        "PERSON_WITH_FOLDED_HANDS",
+        "OK_HAND_SIGN",
+        "DOVE_OF_PEACE",
+        "CLOWN_FACE",
+        "YAWNING_FACE",
+        "FACE_WITH_UNEVEN_EYES_AND_WAVY_MOUTH",
+        "SMILING_FACE_WITH_HEART_SHAPED_EYES",
+        "SPOUTING_WHALE",
+        "HEART_ON_FIRE",
+        "NEW_MOON_WITH_FACE",
+        "HOT_DOG",
+        "HUNDRED_POINTS_SYMBOL",
+        "ROLLING_ON_THE_FLOOR_LAUGHING",
+        "HIGH_VOLTAGE_SIGN",
+        "BANANA",
+        "TROPHY",
+        "BROKEN_HEART",
+        "FACE_WITH_ONE_EYEBROW_RAISED",
+        "NEUTRAL_FACE",
+        "STRAWBERRY",
+        "BOTTLE_WITH_POPPING_CORK",
+        "KISS_MARK",
+        "REVERSED_HAND_WITH_MIDDLE_FINGER_EXTENDED",
+        "SMILING_FACE_WITH_HORNS",
+        "SLEEPING_FACE",
+        "LOUDLY_CRYING_FACE",
+        "NERD_FACE",
+        "GHOST",
+        "MAN_TECHNOLOGIST",
+        "EYES",
+        "JACK_O_LANTERN",
+        "SEE_NO_EVIL_MONKEY",
+        "SMILING_FACE_WITH_HALO",
+        "FEARFUL_FACE",
+        "HANDSHAKE",
+        "WRITING_HAND",
+        "HUGGING_FACE",
+        "SALUTING_FACE",
+        "FATHER_CHRISTMAS",
+        "CHRISTMAS_TREE",
+        "SNOWMAN",
+        "NAIL_POLISH",
+        "GRINNING_FACE_WITH_ONE_LARGE_AND_ONE_SMALL_EYE",
+        "MOYAI",
+        "SQUARED_COOL",
+        "HEART_WITH_ARROW",
+        "HEAR_NO_EVIL_MONKEY",
+        "UNICORN_FACE",
+        "FACE_THROWING_A_KISS",
+        "PILL",
+        "SPEAK_NO_EVIL_MONKEY",
+        "SMILING_FACE_WITH_SUNGLASSES",
+        "ALIEN_MONSTER",
+        "MAN_SHRUGGING",
+        "SHRUG",
+        "WOMAN_SHRUGGING",
+        "POUTING_FACE",
+    ]
+    hashtags: list[str]
+
+
+def get_openai_chatcompletion(transcript: str) -> SummaryResponse:
     openai_model = os.getenv("OPENAI_MODEL_ID")
     if openai_model is None:
         raise ValueError("OPENAI_MODEL_ID environment variable not set")
-    summary_result = client.chat.completions.create(
-        model=openai_model,
-        temperature=0,
-        messages=messages,
-    )
-    try:
-        [choice] = summary_result.choices
-        if choice.message.content.startswith("```"):
-            json_str = "\n".join(choice.message.content.splitlines()[1:-1])
-        else:
-            json_str = choice.message.content
-        data = json.loads(json_str)
-    except IndexError:
-        _logger.error(f"OpenAI returned more than one or no choices: {summary_result}")
-        raise
-    except json.JSONDecodeError:
-        _logger.warning(f"OpenAI returned invalid JSON: {choice.message.content}")
-        if n_retry == max_retries:
-            raise
-        else:
-            _logger.info(f"Retrying {n_retry}/{max_retries}")
-            messages.append(choice.message)
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Your last message was not valid JSON. Please correct your last answer. "
-                        "Your answer should contain nothing but the JSON"
-                    ),
-                }
-            )
-            return get_openai_chatcompletion(messages, n_retry + 1, max_retries)
-    return data
 
-
-async def get_emoji(text: str) -> str:
-    reaction_emojis = "\n".join(name for name, _member in ReactionEmoji.__members__.items())
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an advanced AI assistant to process transcripts of audio messages. "
-                "You will receive a transcript of an audio message. The message can be in different languages."
-                "Your task is to choose ONE emoji from a list of emojis that best describes the audio message. "
-                "Choose EXACTLY ONE emoji. Your answer should ONLY contain that one emoji and NOTHING ELSE.\n"
-                "Example answer: BANANA \n\n"
-                f"List of emojis to choose from:\n{reaction_emojis}\n"
-            ),
-        },
-        {"role": "user", "content": text},
-    ]
-    openai_model = os.getenv("OPENAI_MODEL_ID")
-    result = await aclient.chat.completions.create(
-        model=openai_model,
-        temperature=0,
-        messages=messages,
+    prompt = (
+        "You are an advanced AI assistant for analyzing voice messages and audio files. "
+        "You will be given a transcript of a voice message or audio file in a language you can understand,"
+        " and you need to extract the following information:\n"
+        "1. The language of the message using the IETF language tag format (e.g. 'en', 'de', 'zh', etc.)\n"
+        "2. The topics discussed in the message. The topics should be written in the language of the transcript."
+        " Write them as bullet points, each topic described in a concise but complete sentence.\n"
+        "3. ONE emoji that best describes the message.\n"
+        "4. UP TO THREE hashtags that best describe the message. Make sure to prefix them with ONLY with a '#' symbol."
     )
-    [choice] = result.choices
-    if choice.message.content in ReactionEmoji.__members__:
-        return choice.message.content
-    else:
-        _logger.warning(f"Could not get emoji for text: {text}")
-        return None
+
+    summary_result = client.beta.chat.completions.parse(
+        model=openai_model,
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": transcript},
+        ],
+        response_format=SummaryResponse,
+    )
+
+    [choice] = summary_result.choices
+    return choice.message.parsed

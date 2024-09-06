@@ -24,7 +24,6 @@ from ..integrations import (
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
 from ..models import (
-    Language,
     Summary,
     TelegramChat,
     TelegramUser,
@@ -68,12 +67,13 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 transcript = await transcribe_file(update, context, file_path, voice_or_audio)
 
         session.add(transcript)
-        if transcript.reaction_emoji:
-            await update.message.set_reaction(ReactionEmoji[transcript.reaction_emoji])
 
         summary = _summarize(update, context, transcript)
         bot_msg = _get_summary_message(update, context, summary)
         chat = session.get(TelegramChat, update.effective_chat.id)
+
+        if transcript.reaction_emoji:
+            await update.message.set_reaction(ReactionEmoji[transcript.reaction_emoji])
 
         lang_to_transcript = {
             "en": "Transcript",
@@ -147,8 +147,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     if chat is None:
         raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
 
-    en_lang = Language.get_default_language(session)
-    if chat.language != en_lang:
+    if chat.language != summary.transcript.input_language:
         stmt = (
             select(TopicTranslation)
             .join(Topic, and_(TopicTranslation.topic_id == Topic.id, Topic.summary == summary))
@@ -168,6 +167,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
+    hashtags = " ".join(summary.transcript.hashtags) + "\n\n" if summary.transcript.hashtags else ""
     if (summary_language := summary.transcript.input_language) and summary_language != chat.language:
         # add language info if different
         lang_to_lang_prefix = {
@@ -190,9 +190,9 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
         }
         prefix_lines = lang_to_lang_prefix.get(update.effective_user.language_code, lang_to_lang_prefix["en"])
         prefix = "\n".join(prefix_lines)
-        text = f"{prefix}\n\n{msg}"
+        text = f"{hashtags}{prefix}\n\n{msg}"
     else:
-        text = msg
+        text = f"{hashtags}{msg}"
 
     return BotMessage(chat_id=update.effective_chat.id, text=text)
 

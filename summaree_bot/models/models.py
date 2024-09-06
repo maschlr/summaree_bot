@@ -1,5 +1,6 @@
 import datetime as dt
 import enum
+import json
 import os
 import secrets
 from datetime import datetime
@@ -7,7 +8,18 @@ from typing import List, Optional
 
 import deepl
 import sqlalchemy
-from sqlalchemy import Column, Date, ForeignKey, MetaData, Table, cast, func, select
+from sqlalchemy import (
+    Column,
+    Date,
+    ForeignKey,
+    MetaData,
+    String,
+    Table,
+    TypeDecorator,
+    cast,
+    func,
+    select,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.types import BigInteger
 from telegram.ext import ContextTypes
@@ -190,6 +202,18 @@ class BotMessage(Base):
     summary: Mapped[Optional["Summary"]] = relationship(back_populates="messages")
 
 
+class JsonList(TypeDecorator):
+    impl = String
+
+    def process_bind_param(self, value, dialect):
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value:
+            return json.loads(value)
+        return []
+
+
 class Transcript(Base):
     __tablename__ = "transcript"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -208,7 +232,7 @@ class Transcript(Base):
     input_language: Mapped[Optional["Language"]] = relationship(back_populates="transcripts")
 
     reaction_emoji: Mapped[Optional[str]]
-
+    hashtags: Mapped[Optional[List[str]]] = mapped_column(JsonList)
     # summary is created after transcribing
     # one2one relationship Transcript (Parent) -> Summary (Child)
     # https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#one-to-one
