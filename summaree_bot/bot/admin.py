@@ -15,7 +15,6 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown, mention_html
 
-from ..integrations.openai import summary_prompt_file_path
 from ..models import Invoice, InvoiceStatus, Subscription, Summary, TelegramUser
 from ..models.session import DbSessionContext, session_context
 from . import AdminChannelMessage, BotDocument, BotMessage
@@ -35,9 +34,6 @@ def _dataset(update: Update, context: DbSessionContext) -> BotDocument:
     elif admin_chat_id is None:
         raise ValueError("ADMIN_CHAT_ID environment variable not set")
 
-    with open(summary_prompt_file_path) as fp:
-        system_msg = fp.read()
-
     session = context.db_session
 
     summaries = session.execute(select(Summary)).scalars().all()
@@ -52,7 +48,6 @@ def _dataset(update: Update, context: DbSessionContext) -> BotDocument:
         assistant_msg = json.dumps(assistant_msg_data)
         data = {
             "messages": [
-                {"role": "system", "content": system_msg},
                 {"role": "user", "content": summary.transcript.result},
                 {"role": "agent", "content": assistant_msg},
             ]
