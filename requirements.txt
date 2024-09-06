@@ -13,3 +13,4 @@ pandas
 matplotlib
 telethon
 tqdm
+pydantic
