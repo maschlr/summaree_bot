@@ -74,7 +74,6 @@ def ensure_chat(fnc):
             session.add(chat)
             if chat.type != "private":
                 context.bot_data["message_queue"].appendleft(AdminChannelMessage(text=f"New chat: {chat.title}"))
-            # TODO: emit welcome message
         elif tg_user not in chat.users:
             chat.users.add(tg_user)
 

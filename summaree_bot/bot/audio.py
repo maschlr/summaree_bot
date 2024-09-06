@@ -294,6 +294,12 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 text,
                 reply_markup=subscription_keyboard,
             )
+            admin_msg = AdminChannelMessage(
+                text=f"User {update.effective_user.mention_markdown_v2()} tried to send a file larger than 10MB "
+                f"The file size was {file_size / 1024 / 1024} MB\.",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            await admin_msg.send(context.bot)
             return
 
         current_month = datetime.datetime.now(tz=datetime.UTC).month
@@ -320,6 +326,12 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 text,
                 reply_markup=subscription_keyboard,
             )
+            text = f"User {update.effective_user.mention_markdown_v2()} rechead the limit of 10 summaries per month\."
+            admin_msg = AdminChannelMessage(
+                text=text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            await admin_msg.send(context.bot)
             return
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
