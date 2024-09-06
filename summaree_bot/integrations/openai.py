@@ -14,6 +14,7 @@ from typing import Optional, Union, cast
 import telegram
 from openai import AsyncOpenAI, BadRequestError, OpenAI
 from sqlalchemy import func, select
+from telegram.constants import ReactionEmoji
 from telegram.ext import ContextTypes
 
 from ..bot import ensure_chat
@@ -27,6 +28,7 @@ _logger = logging.getLogger(__name__)
 mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 summary_prompt_file_path = Path(__file__).parent / "data" / "summarize.txt"
 client = OpenAI()
+aclient = AsyncOpenAI()
 
 __all__ = ["_check_existing_transcript", "_extract_file_name", "transcribe_file", "_summarize"]
 
@@ -88,6 +90,8 @@ async def transcribe_file(
     with Session.begin() as session:
         stmt = select(Transcript).where(Transcript.sha256_hash == sha256_hash)
         if transcript := session.execute(stmt).scalar_one_or_none():
+            if transcript.reaction_emoji is None:
+                transcript.reaction_emoji = await get_emoji(transcript.result)
             _logger.info(f"Using already existing transcript: {transcript} with sha256_hash: {sha256_hash}")
             return transcript
 
@@ -125,6 +129,7 @@ async def transcribe_file(
         else:
             transcript_language = None
 
+        reaction_emoji = await get_emoji(whisper_transcription.text)
         transcript = Transcript(
             created_at=update.effective_message.date,
             finished_at=dt.datetime.now(dt.UTC),
@@ -136,6 +141,7 @@ async def transcribe_file(
             file_size=voice_or_audio.file_size,
             result=whisper_transcription.text,
             input_language=transcript_language,
+            reaction_emoji=reaction_emoji,
         )
         session.add(transcript)
         session.flush()
@@ -185,7 +191,6 @@ async def get_whisper_transcription(file_path: Path):
 
 
 async def get_whisper_transcription_async(file_path: Path):
-    aclient = AsyncOpenAI()
     with open(file_path, "rb") as fp:
         try:
             transcription_result = await aclient.audio.transcriptions.create(
@@ -281,3 +286,33 @@ def get_openai_chatcompletion(messages: list[dict], n_retry: int = 1, max_retrie
             )
             return get_openai_chatcompletion(messages, n_retry + 1, max_retries)
     return data
+
+
+async def get_emoji(text: str) -> str:
+    reaction_emojis = "\n".join(name for name, _member in ReactionEmoji.__members__.items())
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an advanced AI assistant to process transcripts of audio messages. "
+                "You will receive a transcript of an audio message. The message can be in different languages."
+                "Your task is to choose ONE emoji from a list of emojis that best describes the audio message. "
+                "Choose EXACTLY ONE emoji. Your answer should ONLY contain that one emoji and NOTHING ELSE.\n"
+                "Example answer: BANANA \n\n"
+                f"List of emojis to choose from:\n{reaction_emojis}\n"
+            ),
+        },
+        {"role": "user", "content": text},
+    ]
+    openai_model = os.getenv("OPENAI_MODEL_ID")
+    result = await aclient.chat.completions.create(
+        model=openai_model,
+        temperature=0,
+        messages=messages,
+    )
+    [choice] = result.choices
+    if choice.message.content in ReactionEmoji.__members__:
+        return choice.message.content
+    else:
+        _logger.warning(f"Could not get emoji for text: {text}")
+        return None

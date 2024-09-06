@@ -207,6 +207,8 @@ class Transcript(Base):
     input_language_id: Mapped[Optional[int]] = mapped_column(ForeignKey("language.id"))
     input_language: Mapped[Optional["Language"]] = relationship(back_populates="transcripts")
 
+    reaction_emoji: Mapped[Optional[str]]
+
     # summary is created after transcribing
     # one2one relationship Transcript (Parent) -> Summary (Child)
     # https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html#one-to-one

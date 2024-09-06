@@ -8,7 +8,7 @@ from typing import Any, Coroutine, Generator, cast
 import magic
 from sqlalchemy import and_, extract, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ChatAction, MessageLimit, ParseMode
+from telegram.constants import ChatAction, MessageLimit, ParseMode, ReactionEmoji
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown
 from telethon.sync import TelegramClient as TelethonClient
@@ -66,6 +66,10 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     file_path.rename(file_path.with_suffix(f".{suffix}"))
 
                 transcript = await transcribe_file(update, context, file_path, voice_or_audio)
+
+        session.add(transcript)
+        if transcript.reaction_emoji:
+            await update.message.set_reaction(ReactionEmoji[transcript.reaction_emoji])
 
         summary = _summarize(update, context, transcript)
         bot_msg = _get_summary_message(update, context, summary)
