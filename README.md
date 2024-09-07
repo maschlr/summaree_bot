@@ -1,10 +1,25 @@
-# Telegram Bot summar.ee
+<a href="https://summar.ee">
+  <img src="https://raw.githubusercontent.com/maschlr/summaree_bot/master/logo.svg" alt="drawing" width="128"/>
+</a>
+
+# AI Chatbot [summar.ee](https://summar.ee)
 
 ## Description
 
-Telegram for transcribing, summarizing and translating audio messages.
+[summar.ee](https://summar.ee) is an AI chatbot for transcribing, summarizing and translating voice messages and audio files.
+The bot automatically processes voice messages and audio files when it's added to a chat.
+You can talk to it in a private chat or add it to a group chat.
 
-## Setup
+Currently, the bot is running on [Telegram](https://telegram.org/): **[@summaree_bot](https://t.me/summaree_bot)**
+
+### Features
+
+- [x] User interface in four languages: 🇺🇸 English, 🇩🇪 German, 🇷🇺 Russian and 🇪🇸 Spanish
+- [x] Transcribe & translate voice messages & audio files
+- [x] Create & translate summary of transcripts
+- [x] Add hashtags to summaries for easy search & categorization
+
+## Development
 
 ### Create virtual environment
 
