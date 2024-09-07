@@ -69,6 +69,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.add(transcript)
 
         summary = _summarize(update, context, transcript)
+        total_cost = summary.total_cost
         bot_msg = _get_summary_message(update, context, summary)
         chat = session.get(TelegramChat, update.effective_chat.id)
 
@@ -116,7 +117,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             ]
             bot_msg.reply_markup = InlineKeyboardMarkup([buttons])
 
-    return bot_msg
+    return bot_msg, total_cost
 
 
 async def download_large_file(chat_id: int, message_id: int, filepath: Path):
@@ -346,7 +347,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
 
     start_message = start_msg_task.result()
-    bot_response_msg = bot_response_msg_task.result()
+    bot_response_msg, total_cost = bot_response_msg_task.result()
 
     try:
         text = (
@@ -358,6 +359,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             f"📝 Summary \#{n_summaries + 1} created by user "
             f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
         )
+    text += escape_markdown(f"\n💰 Cost: $ {total_cost:.6f}" if total_cost else "", version=2)
     new_summary_msg = AdminChannelMessage(
         text=text,
         parse_mode=ParseMode.MARKDOWN_V2,

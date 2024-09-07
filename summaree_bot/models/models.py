@@ -2,6 +2,7 @@ import datetime as dt
 import enum
 import json
 import os
+import re
 import secrets
 from datetime import datetime
 from typing import List, Optional
@@ -224,6 +225,7 @@ class Transcript(Base):
     mime_type: Mapped[str]
     file_size: Mapped[int]
     result: Mapped[str]
+    total_seconds: Mapped[Optional[int]]
 
     finished_at: Mapped[Optional[datetime]]
 
@@ -253,6 +255,12 @@ class Summary(Base):
     tg_chat_id: Mapped[Optional[BigInteger]] = mapped_column(ForeignKey("telegram_chat.id"))
     tg_chat: Mapped["TelegramChat"] = relationship(back_populates="summaries")
 
+    # openai Data to track usage/costs
+    openai_id: Mapped[Optional[str]]
+    openai_model: Mapped[Optional[str]]
+    completion_tokens: Mapped[Optional[int]]
+    prompt_tokens: Mapped[Optional[int]]
+
     messages: Mapped[List["BotMessage"]] = relationship(back_populates="summary")
     topics: Mapped[List["Topic"]] = relationship(back_populates="summary")
 
@@ -270,6 +278,26 @@ class Summary(Base):
         )
 
         return query.all()
+
+    @property
+    def total_cost(self) -> Optional[float]:
+        """
+        Calculate the total cost of the summary.
+        """
+        # gpt-4o: $0.015 per 1M tokens
+        # gpt-4: $0.015 per 1M tokens
+        # gpt-3.5-turbo: $0.0015 per 1M tokens
+        match = re.match(r"gpt-4o-mini.*?", self.openai_model)
+        if not match:
+            # raise NotImplementedError(f"Cost for model {self.openai_model} not implemented")
+            return None
+
+        total_cost = (
+            self.completion_tokens / 1e6 * 0.6
+            + self.prompt_tokens / 1e6 * 0.15
+            + self.transcript.total_seconds / 60 * 0.006
+        )
+        return total_cost
 
 
 class Topic(Base):

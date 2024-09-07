@@ -12,6 +12,7 @@ from typing import Literal, Optional, Union, cast
 
 import telegram
 from openai import AsyncOpenAI, BadRequestError, OpenAI
+from openai.types.chat import ParsedChatCompletion
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from telegram.ext import ContextTypes
@@ -147,6 +148,7 @@ async def transcribe_file(
             file_size=voice_or_audio.file_size,
             result=whisper_transcription.text,
             input_language=transcript_language,
+            total_seconds=whisper_transcription.total_seconds,
         )
         session.add(transcript)
         session.flush()
@@ -157,6 +159,7 @@ async def transcribe_file(
 class WhisperTranscription:
     text: str
     language: str
+    total_seconds: int
 
 
 async def get_whisper_transcription(file_path: Path):
@@ -175,8 +178,10 @@ async def get_whisper_transcription(file_path: Path):
 
     languages = []
     texts = []
+    total_seconds = 0
     for task in tasks:
         transcription_result = task.result()
+        total_seconds += int(round(transcription_result.model_extra.get("duration", 0), 0))
         languages.append(transcription_result.model_extra.get("language"))
         texts.append(transcription_result.text)
 
@@ -187,7 +192,7 @@ async def get_whisper_transcription(file_path: Path):
         _logger.warning("Could not determine language of the transcription")
         most_common_language = None
 
-    result = WhisperTranscription(text="\n".join(texts), language=most_common_language)
+    result = WhisperTranscription(text="\n".join(texts), language=most_common_language, total_seconds=total_seconds)
 
     if temp_dir is not None:
         temp_dir.cleanup()
@@ -224,7 +229,9 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         return transcript.summary
 
     created_at = dt.datetime.now(dt.UTC)
-    summary_response = get_openai_chatcompletion(transcript.result)
+    openai_response: ParsedChatCompletion = get_openai_chatcompletion(transcript.result)
+    [choice] = openai_response.choices
+    summary_response: SummaryResponse = choice.message.parsed
 
     if transcript.input_language is None or transcript.input_language.ietf_tag != summary_response.ietf_language_tag:
         language_stmt = select(Language).where(Language.ietf_tag == summary_response.ietf_language_tag)
@@ -240,6 +247,10 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         topics=[Topic(text=text, order=i) for i, text in enumerate(summary_response.topics, start=1)],
         tg_user_id=update.effective_user.id,
         tg_chat_id=update.effective_chat.id,
+        openai_id=openai_response.id,
+        openai_model=openai_response.model,
+        completion_tokens=openai_response.usage.completion_tokens,
+        prompt_tokens=openai_response.usage.prompt_tokens,
     )
     transcript.reaction_emoji = summary_response.emoji
     transcript.hashtags = summary_response.hashtags
@@ -359,7 +370,7 @@ class SummaryResponse(BaseModel):
     hashtags: list[str]
 
 
-def get_openai_chatcompletion(transcript: str) -> SummaryResponse:
+def get_openai_chatcompletion(transcript: str) -> ParsedChatCompletion:
     openai_model = os.getenv("OPENAI_MODEL_ID")
     if openai_model is None:
         raise ValueError("OPENAI_MODEL_ID environment variable not set")
@@ -382,7 +393,7 @@ def get_openai_chatcompletion(transcript: str) -> SummaryResponse:
             {"role": "user", "content": transcript},
         ],
         response_format=SummaryResponse,
+        n=1,
     )
 
-    [choice] = summary_result.choices
-    return choice.message.parsed
+    return summary_result
