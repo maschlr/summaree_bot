@@ -285,13 +285,13 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
             lang_to_text = {
-                "en": r"⚠️ Maximum file size for non-premium is 10MB\. "
+                "en": r"⚠️ Maximum file size for non\-premium is 10MB\. "
                 r"Please send a smaller file or upgrade to `/premium`\.",
-                "de": r"⚠️ Die maximale Dateigröße für Nicht-Premium-Nutzer beträgt 10MB\. "
+                "de": r"⚠️ Die maximale Dateigröße für Nicht\-Premium\-Nutzer beträgt 10MB\. "
                 r"Bitte sende eine kleinere Datei oder aktualisiere `/premium`\.",
-                "es": r"⚠️ El tamaño máximo de archivo para no-premium es de 10MB\. "
+                "es": r"⚠️ El tamaño máximo de archivo para no\-premium es de 10MB\. "
                 r"Envíe un archivo más pequeño o actualice a `/premium`\.",
-                "ru": r"⚠️ Максимальный размер файла для не-премиум составляет 10MB\. "
+                "ru": r"⚠️ Максимальный размер файла для не\-премиум составляет 10MB\. "
                 r"Отправьте меньший файл или обновитесь до `/premium`\.",
             }
             text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
