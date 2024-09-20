@@ -302,7 +302,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             admin_msg = AdminChannelMessage(
                 text=(
                     f"User {update.effective_user.mention_markdown_v2()} tried to send "
-                    f"a file than was {file_size / 1024 / 1024} MB"
+                    f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}"
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
