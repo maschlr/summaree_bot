@@ -162,6 +162,14 @@ class TelegramUser(Base):
             stmt = select(cls).where(cls.username == username)
         return session.execute(stmt).scalar_one_or_none()
 
+    @property
+    def is_summaree_premium(self) -> bool:
+        """Check if the user has a summaree premium subscription"""
+        return any(
+            subscription.status in {SubscriptionStatus.active, SubscriptionStatus.extended}
+            for subscription in self.subscriptions
+        )
+
 
 class TelegramChat(Base):
     __tablename__ = "telegram_chat"

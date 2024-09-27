@@ -9,7 +9,7 @@ from typing import Generator, Union
 
 import pandas as pd
 import prettytable as pt
-from sqlalchemy import func, select
+from sqlalchemy import extract, func, select
 from telegram import InputMediaPhoto, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -152,10 +152,18 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @session_context
 def _top(_update: Update, context: DbSessionContext) -> Generator[AdminChannelMessage, None, None]:
     session = context.db_session
-    result = session.query(Summary.tg_user_id, func.count(Summary.id).label("count")).group_by(Summary.tg_user_id).all()
+    now = dt.datetime.now(dt.UTC)
+    month = now.month
+    month_name = now.strftime("%B")
+    result = (
+        session.query(Summary.tg_user_id, func.count(Summary.id).label("count"))
+        .filter(extract("month", Summary.created_at) == month)
+        .group_by(Summary.tg_user_id)
+        .all()
+    )
     result.sort(key=lambda x: x[1], reverse=True)
 
-    table = pt.PrettyTable(["Rank", "User", "Summaries"])
+    table = pt.PrettyTable(["Rank", "User", f"Summaries ({month_name})"])
     table.align["Rank"] = "r"
     table.align["User"] = "l"
     table.align["Summaries"] = "r"
@@ -167,7 +175,9 @@ def _top(_update: Update, context: DbSessionContext) -> Generator[AdminChannelMe
             user = session.get(TelegramUser, user_id)
             if not user:
                 continue
-            table.add_row([rank, f"{user.username or user.first_name} ({user.id})", count])
+            table.add_row(
+                [rank, f"{user.username or user.first_name}" + (" ⭐" if user.is_summaree_premium else ""), count]
+            )
             rank += 1
 
         yield AdminChannelMessage(

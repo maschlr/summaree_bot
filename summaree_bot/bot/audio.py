@@ -317,15 +317,15 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             )
             .all()
         )
-        if len(summaries_this_month) >= 10 and not chat.is_premium_active:
+        if len(summaries_this_month) >= 5 and not chat.is_premium_active:
             lang_to_text = {
-                "en": r"⚠️ Sorry, you have reached the limit of 10 summaries per month\. "
+                "en": r"⚠️ Sorry, you have reached the limit of 5 summaries per month\. "
                 r"Please consider upgrading to `/premium` to get unlimited summaries\.",
-                "de": r"⚠️ Sorry, du hast die Grenze von 10 Zusammenfassungen pro Monat erreicht\. "
+                "de": r"⚠️ Sorry, du hast die Grenze von 5 Zusammenfassungen pro Monat erreicht\. "
                 r"Mit Premium erhälts du eine unbegrenzte Anzahl an Zusammenfassungen\.",
-                "es": r"⚠️ Lo sentimos, has alcanzado el límite de 10 resúmenes al mes\. "
+                "es": r"⚠️ Lo sentimos, has alcanzado el límite de 5 resúmenes al mes\. "
                 r"Considere actualizar a `/premium` para obtener resúmenes ilimitados\.",
-                "ru": r"⚠️ Извините, вы достигли ограничения в 10 резюме в месяц\. "
+                "ru": r"⚠️ Извините, вы достигли ограничения в 5 резюме в месяц\. "
                 r"Пожалуйста, рассмотрите возможность обновления до `/premium` для получения неограниченных резюме\.",
             }
             text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
@@ -333,7 +333,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 text,
                 reply_markup=subscription_keyboard,
             )
-            text = f"User {update.effective_user.mention_markdown_v2()} rechead the limit of 10 summaries per month\."
+            text = f"User {update.effective_user.mention_markdown_v2()} reached the limit of 5 summaries per month\."
             admin_msg = AdminChannelMessage(
                 text=text,
                 parse_mode=ParseMode.MARKDOWN_V2,
