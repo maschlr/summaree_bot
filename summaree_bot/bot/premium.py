@@ -100,8 +100,6 @@ def get_subscription_keyboard(
 
     callback_data: dict[str, Union[str, Sequence, Mapping]] = {"fnc": "buy_or_extend_subscription"}
     ietf_tag = update.effective_user.language_code
-    if subscription_id is not None:
-        callback_data["args"] = [subscription_id]
 
     # fetch all ⭐ products
     stmt = select(Product).where(Product.premium_period.in_(list(PremiumPeriod))).where(Product.currency == "XTR")
@@ -147,18 +145,20 @@ def get_subscription_keyboard(
             f"🔥 1 {lookup[PremiumPeriod.YEAR]}: ⭐{periods_to_products[PremiumPeriod.YEAR].discounted_price}"
         ),
     }
+
     keyboard_buttons = [
         [
             InlineKeyboardButton(
                 text,
                 callback_data=dict(
                     **callback_data,
-                    kwargs={"product_id": periods_to_products[period].id},
+                    kwargs={"product_id": periods_to_products[period].id, "subscription_id": subscription_id},
                 ),
             )
         ]
         for period, text in period_to_keyboard_button_text.items()
     ]
+
     lang_to_remove_button_text = {
         "en": "😌 No, thanks",
         "ru": "😌 Нет, спасибо",
@@ -234,7 +234,9 @@ async def premium_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 @session_context
 @ensure_chat
-def _payment_callback(update: Update, context: DbSessionContext, product_id: int) -> BotInvoice:
+def _payment_callback(
+    update: Update, context: DbSessionContext, product_id: int, subscription_id: Optional[int]
+) -> BotInvoice:
     """Sends an invoice without shipping-payment."""
     if update.effective_chat is None or update.effective_user is None:
         raise ValueError("chat/user is None")
@@ -250,6 +252,7 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
     start_date = datetime.now(dt.UTC)
     days = product.premium_period.value
     end_date = start_date + timedelta(days=days)
+    # TODO: handle case when subscription is extended
     subscription = create_subscription(
         session,
         tg_user_id=tg_user.id,
@@ -257,6 +260,7 @@ def _payment_callback(update: Update, context: DbSessionContext, product_id: int
         chat_id=chat_id,
         start_date=start_date,
     )
+
     lang_to_title = {
         "en": "summar.ee premium",
         "ru": "summar.ee премиум",
@@ -355,8 +359,10 @@ def create_subscription(
     return subscription
 
 
-async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:
-    bot_invoice = _payment_callback(update, context, product_id)
+async def payment_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, subscription_id: Optional[int] = None
+) -> None:
+    bot_invoice = _payment_callback(update, context, product_id, subscription_id)
     await bot_invoice.send(context.bot)
 
 
