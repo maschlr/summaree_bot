@@ -137,7 +137,3 @@ def wrap_in_pre(text: str) -> str:
     if len_wrapped_msg > 4096:
         return wrap_in_pre(text[: -(len_wrapped_msg - 4096)])
     return wrapped_msg
-
-
-def has_non_ascii(text):
-    return any(ord(char) > 127 for char in text)

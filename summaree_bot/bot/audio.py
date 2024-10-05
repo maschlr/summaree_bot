@@ -45,18 +45,18 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     with Session.begin() as session:
         context.db_session = session
         # check existing transcript via file_unique_id,
-        transcript, voice_or_audio = _check_existing_transcript(update, context)
+        transcript, voice_or_audio_or_document = _check_existing_transcript(update, context)
         #   if not exist, download audio (async) to tempdir and transcribe
         if transcript is None:
-            file_name = _extract_file_name(voice_or_audio)
+            file_name = _extract_file_name(voice_or_audio_or_document)
             with tempfile.TemporaryDirectory() as tempdir_path_str:
                 # download the file to the folder
                 tempdir_path = Path(tempdir_path_str)
                 file_path = tempdir_path / file_name
-                if voice_or_audio.file_size > 20 * 1024 * 1024:
+                if voice_or_audio_or_document.file_size > 20 * 1024 * 1024:
                     await download_large_file(update.effective_chat.id, update.message.message_id, file_path)
                 else:
-                    file = await voice_or_audio.get_file()
+                    file = await voice_or_audio_or_document.get_file()
                     await file.download_to_drive(file_path)
 
                 if not file_name.suffix:
@@ -64,7 +64,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     _, suffix = mime.split("/")
                     file_path.rename(file_path.with_suffix(f".{suffix}"))
 
-                transcript = await transcribe_file(update, context, file_path, voice_or_audio)
+                transcript = await transcribe_file(update, context, file_path, voice_or_audio_or_document)
 
         session.add(transcript)
 
@@ -272,7 +272,11 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         update.message is None
         or update.effective_chat is None
         or update.effective_user is None
-        or ((voice := update.message.voice) is None and (audio := update.message.audio) is None)
+        or (
+            (voice := update.message.voice) is None
+            and (audio := update.message.audio) is None
+            and (document := update.message.document) is None
+        )
     ):
         raise ValueError("The update must contain chat/user/voice/audio message.")
 
@@ -281,7 +285,9 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         chat = session.get(TelegramChat, update.effective_chat.id)
         user = session.get(TelegramUser, update.effective_user.id)
         n_summaries = len(user.summaries) if user else 0
-        file_size = cast(int, voice.file_size if voice else audio.file_size if audio else 0)
+        file_size = cast(
+            int, voice.file_size if voice else audio.file_size if audio else document.file_size if document else 0
+        )
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
             lang_to_text = {

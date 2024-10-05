@@ -89,7 +89,9 @@ def main() -> None:
         application.add_handler(CommandHandler(command, handler, filters.Chat(int(admin_chat_id))))
 
     application.add_handler(CommandHandler("referral", referral_handler))
-    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, transcribe_and_summarize))
+    application.add_handler(
+        MessageHandler(filters.VOICE | filters.AUDIO | filters.Document.Category("audio/"), transcribe_and_summarize)
+    )
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))
     application.add_handler(CommandHandler("bad_command", bad_command_handler))

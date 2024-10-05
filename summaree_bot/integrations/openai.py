@@ -18,7 +18,6 @@ from sqlalchemy import func, select
 from telegram.ext import ContextTypes
 
 from ..bot import ensure_chat
-from ..bot.helpers import has_non_ascii
 from ..models import Language, Summary, Topic, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from .audio import split_audio, transcode_ffmpeg
@@ -41,43 +40,43 @@ __all__ = [
 @ensure_chat
 def _check_existing_transcript(
     update: telegram.Update, context: DbSessionContext
-) -> tuple[Optional[Transcript], Union[telegram.Voice, telegram.Audio]]:
-    if update.message is None or (update.message.voice is None and update.message.audio is None):
-        raise ValueError("The update must contain a voice or audio message.")
+) -> tuple[Optional[Transcript], Union[telegram.Voice, telegram.Audio, telegram.Document]]:
+    if update.message is None or (
+        update.message.voice is None and update.message.audio is None and update.message.document is None
+    ):
+        raise ValueError("The message must contain a voice or audio or (audio) document.")
 
     session = context.db_session
     if session is None:
         raise ValueError("There should be a session attached to context")
-    voice_or_audio = cast(
-        Union[telegram.Voice, telegram.Audio],
-        (update.message.voice or update.message.audio),
+    voice_or_audio_or_document = cast(
+        Union[telegram.Voice, telegram.Audio, telegram.Document],
+        (update.message.voice or update.message.audio or update.message.document),
     )
-    file_unique_id = voice_or_audio.file_unique_id
+    file_unique_id = voice_or_audio_or_document.file_unique_id
 
     stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
     if transcript := session.scalars(stmt).one_or_none():
         _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
-    return transcript, voice_or_audio
+    return transcript, voice_or_audio_or_document
 
 
-def _extract_file_name(voice_or_audio: Union[telegram.Voice, telegram.Audio]) -> Path:
-    if hasattr(voice_or_audio, "file_name") and voice_or_audio.file_name is not None:
-        file_name = Path(voice_or_audio.file_name)
-        if has_non_ascii(str(file_name)):
-            sanitized_file_name = voice_or_audio.file_unique_id + file_name.suffix
-            return Path(sanitized_file_name)
-        return file_name
+def _extract_file_name(voice_or_audio_or_document: Union[telegram.Voice, telegram.Audio, telegram.Document]) -> Path:
+    if hasattr(voice_or_audio_or_document, "file_name") and voice_or_audio_or_document.file_name is not None:
+        file_name = Path(voice_or_audio_or_document.file_name)
+        sanitized_file_name = voice_or_audio_or_document.file_unique_id + file_name.suffix
+        return Path(sanitized_file_name)
 
     # else try to extract the suffix via the mime type or use file_name without suffic
     match = None
 
-    if mime_type := voice_or_audio.mime_type:
+    if mime_type := voice_or_audio_or_document.mime_type:
         match = mimetype_pattern.match(mime_type)
 
     if match is None:
-        file_name = voice_or_audio.file_unique_id
+        file_name = voice_or_audio_or_document.file_unique_id
     else:
-        file_name = f"{voice_or_audio.file_unique_id}.{match.group('subtype')}"
+        file_name = f"{voice_or_audio_or_document.file_unique_id}.{match.group('subtype')}"
 
     return Path(file_name)
 
@@ -86,7 +85,7 @@ async def transcribe_file(
     update: telegram.Update,
     context: ContextTypes.DEFAULT_TYPE,
     file_path: Path,
-    voice_or_audio: Union[telegram.Voice, telegram.Audio],
+    voice_or_audio_or_document: Union[telegram.Voice, telegram.Audio],
 ) -> Transcript:
     with open(file_path, "rb") as fp:
         m = hashlib.sha256()
@@ -102,13 +101,13 @@ async def transcribe_file(
 
     if (
         update.message is None
-        or (update.message.voice is None and update.message.audio is None)
+        or (update.message.voice is None and update.message.audio is None and update.message.document is None)
         or update.effective_user is None
     ):
         raise ValueError("The update must contain a voice or audio message (and an effective_user).")
-    voice_or_audio = cast(
-        Union[telegram.Voice, telegram.Audio],
-        (update.message.voice or update.message.audio),
+    voice_or_audio_or_document = cast(
+        Union[telegram.Voice, telegram.Audio, telegram.Document],
+        (update.message.voice or update.message.audio or update.message.document),
     )
 
     # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
@@ -140,12 +139,12 @@ async def transcribe_file(
         transcript = Transcript(
             created_at=update.effective_message.date,
             finished_at=dt.datetime.now(dt.UTC),
-            file_unique_id=voice_or_audio.file_unique_id,
-            file_id=voice_or_audio.file_id,
+            file_unique_id=voice_or_audio_or_document.file_unique_id,
+            file_id=voice_or_audio_or_document.file_id,
             sha256_hash=sha256_hash,
-            duration=voice_or_audio.duration,
-            mime_type=voice_or_audio.mime_type,
-            file_size=voice_or_audio.file_size,
+            duration=voice_or_audio_or_document.duration if hasattr(voice_or_audio_or_document, "duration") else None,
+            mime_type=voice_or_audio_or_document.mime_type,
+            file_size=voice_or_audio_or_document.file_size,
             result=whisper_transcription.text,
             input_language=transcript_language,
             total_seconds=whisper_transcription.total_seconds,

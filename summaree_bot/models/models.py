@@ -229,7 +229,7 @@ class Transcript(Base):
     file_id: Mapped[str]
     file_unique_id: Mapped[str] = mapped_column(unique=True)
     sha256_hash: Mapped[str] = mapped_column(unique=True)  # hex
-    duration: Mapped[int]
+    duration: Mapped[Optional[int]]
     mime_type: Mapped[str]
     file_size: Mapped[int]
     result: Mapped[str]
