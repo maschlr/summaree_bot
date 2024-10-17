@@ -41,24 +41,23 @@ __all__ = [
 def _check_existing_transcript(
     update: telegram.Update, context: DbSessionContext
 ) -> tuple[Optional[Transcript], Union[telegram.Voice, telegram.Audio, telegram.Document]]:
-    if update.message is None or (
-        update.message.voice is None and update.message.audio is None and update.message.document is None
-    ):
-        raise ValueError("The message must contain a voice or audio or (audio) document.")
+    origin = update.message or update.channel_post
+    if origin is None:
+        raise ValueError("Neither message nor channel post was found in update")
 
     session = context.db_session
     if session is None:
         raise ValueError("There should be a session attached to context")
-    voice_or_audio_or_document = cast(
+    file = cast(
         Union[telegram.Voice, telegram.Audio, telegram.Document],
-        (update.message.voice or update.message.audio or update.message.document),
+        (origin.voice or origin.audio or origin.document),
     )
-    file_unique_id = voice_or_audio_or_document.file_unique_id
+    file_unique_id = file.file_unique_id
 
     stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
     if transcript := session.scalars(stmt).one_or_none():
         _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
-    return transcript, voice_or_audio_or_document
+    return transcript, file
 
 
 def _extract_file_name(voice_or_audio_or_document: Union[telegram.Voice, telegram.Audio, telegram.Document]) -> Path:

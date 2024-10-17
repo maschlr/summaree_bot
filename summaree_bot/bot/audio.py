@@ -41,22 +41,23 @@ _logger = getLogger(__name__)
 
 
 async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Coroutine[Any, Any, BotMessage]:
+    origin = update.message or update.channel_post
     context = cast(DbSessionContext, context)
     with Session.begin() as session:
         context.db_session = session
         # check existing transcript via file_unique_id,
-        transcript, voice_or_audio_or_document = _check_existing_transcript(update, context)
+        transcript, file = _check_existing_transcript(update, context)
         #   if not exist, download audio (async) to tempdir and transcribe
         if transcript is None:
-            file_name = _extract_file_name(voice_or_audio_or_document)
+            file_name = _extract_file_name(file)
             with tempfile.TemporaryDirectory() as tempdir_path_str:
                 # download the file to the folder
                 tempdir_path = Path(tempdir_path_str)
                 file_path = tempdir_path / file_name
-                if voice_or_audio_or_document.file_size > 20 * 1024 * 1024:
-                    await download_large_file(update.effective_chat.id, update.message.message_id, file_path)
+                if file.file_size > 20 * 1024 * 1024:
+                    await download_large_file(update.effective_chat.id, origin.message_id, file_path)
                 else:
-                    file = await voice_or_audio_or_document.get_file()
+                    file = await file.get_file()
                     await file.download_to_drive(file_path)
 
                 if not file_name.suffix:
@@ -64,7 +65,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     _, suffix = mime.split("/")
                     file_path.rename(file_path.with_suffix(f".{suffix}"))
 
-                transcript = await transcribe_file(update, context, file_path, voice_or_audio_or_document)
+                transcript = await transcribe_file(update, context, file_path, file)
 
         session.add(transcript)
 
@@ -268,26 +269,17 @@ def _full_transcript_callback(
 
 
 async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if (
-        update.message is None
-        or update.effective_chat is None
-        or update.effective_user is None
-        or (
-            (voice := update.message.voice) is None
-            and (audio := update.message.audio) is None
-            and (document := update.message.document) is None
-        )
-    ):
-        raise ValueError("The update must contain chat/user/voice/audio message.")
+    origin = update.message or update.channel_post
+    if origin is None:
+        raise ValueError("Update contains neither message nor channel_post")
+    file = origin.voice or origin.audio or origin.document
 
     with Session.begin() as session:
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
         user = session.get(TelegramUser, update.effective_user.id)
         n_summaries = len(user.summaries) if user else 0
-        file_size = cast(
-            int, voice.file_size if voice else audio.file_size if audio else document.file_size if document else 0
-        )
+        file_size = file.file_size
         subscription_keyboard = get_subscription_keyboard(update, context)
         if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
             lang_to_text = {
@@ -347,10 +339,10 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             await admin_msg.send(context.bot)
             return
 
-    _logger.info(f"Transcribing and summarizing message: {update.message}")
+    _logger.info(f"Transcribing and summarizing message: {origin}")
     text = LANG_TO_RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, LANG_TO_RECEIVED_AUDIO_MESSAGE["en"])
     async with asyncio.TaskGroup() as tg:
-        start_msg_task = tg.create_task(update.message.reply_text(text))
+        start_msg_task = tg.create_task(update.effective_message.reply_text(text))
         bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
         tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
 
