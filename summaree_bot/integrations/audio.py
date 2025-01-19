@@ -73,6 +73,8 @@ def get_silent_segments(input_file: Path, min_silence_len: int = 500, noise_thre
 
 def split_audio_ffmpeg(input_file: Path, output_dir: Path, segments: List[float]):
     suffix = input_file.suffix
+    if suffix == ".mpeg":
+        suffix = ".m4a"
     output_file = output_dir / f"%03d{suffix}"
     segment_times = ",".join(map(lambda segment: f"{segment:.04f}", segments))
     cmd = (
