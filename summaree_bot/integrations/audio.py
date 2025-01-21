@@ -119,7 +119,7 @@ def split_audio(
     input_file: Path, output_dir: Path, max_size_mb: int = 24, min_silence_len: int = 500, noise_thresh: float = 0.001
 ):
     # get segments and bitrate
-    file_size = input_file.stat().st_size * 1024 * 1024  # MB
+    file_size = input_file.stat().st_size / 1024 / 1024  # MB
     if file_size % max_size_mb:
         min_splits = file_size // max_size_mb + 1
     else:

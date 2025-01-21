@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal, Optional, Union, cast
 
 import telegram
-from openai import AsyncOpenAI, BadRequestError, OpenAI
+from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ParsedChatCompletion
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -115,7 +115,6 @@ async def transcribe_file(
         "flac",
         "mp3",
         "mp4",
-        "mpeg",
         "mpga",
         "m4a",
         "ogg",
@@ -201,20 +200,11 @@ async def get_whisper_transcription(file_path: Path):
 
 async def get_whisper_transcription_async(file_path: Path):
     with open(file_path, "rb") as fp:
-        try:
-            transcription_result = await aclient.audio.transcriptions.create(
-                model="whisper-1",
-                file=fp,
-                response_format="verbose_json",
-            )
-        except BadRequestError:
-            supported_file_path = transcode_ffmpeg(file_path)
-            with open(supported_file_path, "rb") as fp:
-                transcription_result = await aclient.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=fp,
-                    response_format="verbose_json",
-                )
+        transcription_result = await aclient.audio.transcriptions.create(
+            model="whisper-1",
+            file=fp,
+            response_format="verbose_json",
+        )
     return transcription_result
 
 
