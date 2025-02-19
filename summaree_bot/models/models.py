@@ -10,6 +10,7 @@ from typing import List, Optional
 import deepl
 import sqlalchemy
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     Date,
     ForeignKey,
@@ -232,7 +233,9 @@ class Transcript(Base):
     duration: Mapped[Optional[int]]
     mime_type: Mapped[str]
     file_size: Mapped[int]
-    result: Mapped[str]
+    result: Mapped[str] = mapped_column(
+        String, CheckConstraint("result <> ''", name="check_transcript_not_empty"), nullable=False
+    )
     total_seconds: Mapped[Optional[int]]
 
     finished_at: Mapped[Optional[datetime]]
