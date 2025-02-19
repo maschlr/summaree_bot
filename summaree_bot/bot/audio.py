@@ -34,6 +34,7 @@ from ..models import (
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotDocument, BotMessage
 from .constants import LANG_TO_RECEIVED_AUDIO_MESSAGE
+from .exceptions import EmptyTranscription
 from .premium import get_subscription_keyboard
 
 # Enable logging
@@ -355,25 +356,45 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
 
     start_message = start_msg_task.result()
-    bot_response_msg, total_cost = bot_response_msg_task.result()
-
+    admin_text = None
     try:
-        text = (
-            f"📝 Summary \#{n_summaries + 1} created in chat {update.effective_chat.mention_markdown_v2()}"
-            f" by user {update.effective_user.mention_markdown_v2()}"
+        bot_response_msg, total_cost = bot_response_msg_task.result()
+    except EmptyTranscription:
+        lang_to_text = {
+            "en": "⚠️ Sorry, I could not transcribe the audio. Please try a different file.",
+            "de": "⚠️ Entschuldigung, Audiodatei konnte nicht transkribiert werden. Bitte versuche eine andere Datei",
+            "es": "⚠️ Lo siento, no pude transcribir el audio. Por favor, inténtalo de nuevo con otro archivo.",
+            "ru": "⚠️ Извините, я не смог расшифровать аудиозапись. Пожалуйста, попробуйте другой файл.",
+        }
+        bot_response_msg = BotMessage(
+            chat_id=update.effective_chat.id,
+            text=lang_to_text.get(update.effective_user.language_code, lang_to_text["en"]),
         )
-    except TypeError:
-        text = (
-            f"📝 Summary \#{n_summaries + 1} created by user "
-            f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
+        total_cost = None
+        admin_text = (
+            f"⚠️ Empty transcription: \nUser {update.effective_user.mention_markdown_v2()}\n"
+            f"`file_id {update.effective_message.effective_attachment.file_id}`"
         )
-    text += escape_markdown(f"\n💰 Cost: $ {total_cost:.6f}" if total_cost else "", version=2)
-    new_summary_msg = AdminChannelMessage(
-        text=text,
+
+    if admin_text is None:
+        try:
+            admin_text = (
+                f"📝 Summary \#{n_summaries + 1} created in chat {update.effective_chat.mention_markdown_v2()}"
+                f" by user {update.effective_user.mention_markdown_v2()}"
+            )
+        except TypeError:
+            admin_text = (
+                f"📝 Summary \#{n_summaries + 1} created by user "
+                f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
+            )
+        admin_text += escape_markdown(f"\n💰 Cost: $ {total_cost:.6f}" if total_cost else "", version=2)
+
+    admin_channel_msg = AdminChannelMessage(
+        text=admin_text,
         parse_mode=ParseMode.MARKDOWN_V2,
     )
 
     async with asyncio.TaskGroup() as tg:
         tg.create_task(start_message.delete())
         tg.create_task(bot_response_msg.send(context.bot))
-        tg.create_task(new_summary_msg.send(context.bot))
+        tg.create_task(admin_channel_msg.send(context.bot))

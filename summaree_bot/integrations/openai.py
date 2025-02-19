@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from telegram.ext import ContextTypes
 
 from ..bot import ensure_chat
+from ..bot.exceptions import EmptyTranscription
 from ..models import Language, Summary, Topic, Transcript
 from ..models.session import DbSessionContext, Session, session_context
 from .audio import split_audio, transcode_ffmpeg
@@ -194,6 +195,9 @@ async def get_whisper_transcription(file_path: Path):
 
     if temp_dir is not None:
         temp_dir.cleanup()
+
+    if not result.text:
+        raise EmptyTranscription("Whisper transcription failed (empty response)")
 
     return result
 
