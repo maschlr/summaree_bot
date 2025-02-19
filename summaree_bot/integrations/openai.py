@@ -195,6 +195,9 @@ async def get_whisper_transcription(file_path: Path):
     if temp_dir is not None:
         temp_dir.cleanup()
 
+    if not result.text:
+        raise ValueError("Whisper transcription failed (empty response)")
+
     return result
 
 
