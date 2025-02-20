@@ -23,16 +23,13 @@ jobs:
         env:
           HOST: ${{ secrets.SERVER_HOST }}
           USER: ${{ secrets.SERVER_USER }}
-          SCREEN_SESSION: ${{ secrets.SCREEN_SESSION }}
+          SERVICE: ${{ secrets.SERVICE_NAME }}
           REPO_PATH: ${{ secrets.REPO_PATH }}
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes $USER@$HOST << EOF
 
-            # Send Ctrl+C to gracefully stop the process
-            screen -S $SCREEN_SESSION -X stuff $'\003'
-
-            # Wait for the process to stop
-            sleep 2
+            # stop the supervisor process
+            supervisorctl stop $SERVICE
 
             # Pull latest changes
             cd $REPO_PATH
@@ -47,6 +44,6 @@ jobs:
             # Run migrations
             alembic upgrade head
 
-            # Restart the process
-            screen -S $SCREEN_SESSION -X stuff 'python bot.py\n'
+            # stop the supervisor process
+            supervisorctl start $SERVICE
           EOF
