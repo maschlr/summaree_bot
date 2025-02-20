@@ -372,8 +372,8 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         )
         total_cost = None
         admin_text = (
-            f"⚠️ Empty transcription: \nUser {update.effective_user.mention_markdown_v2()}\n"
-            f"`file_id {update.effective_message.effective_attachment.file_id}`"
+            f"⚠️ Empty transcript: \nUser {update.effective_user.mention_markdown_v2()}\n"
+            f"`/get_file {update.effective_message.effective_attachment.file_id}`"
         )
 
     if admin_text is None:
