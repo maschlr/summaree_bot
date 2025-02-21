@@ -122,7 +122,9 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def download_large_file(chat_id: int, message_id: int, filepath: Path):
-    client = TelethonClient("bot", os.environ["TELEGRAM_API_ID"], os.environ["TELEGRAM_API_HASH"])
+    client = TelethonClient(
+        session=None, api_id=os.environ["TELEGRAM_API_ID"], api_hash=os.environ["TELEGRAM_API_HASH"]
+    )
     try:
         await client.start(bot_token=os.environ["TELEGRAM_BOT_TOKEN"])
         message = await client.get_messages(chat_id, ids=message_id)
@@ -135,6 +137,7 @@ async def download_large_file(chat_id: int, message_id: int, filepath: Path):
         else:
             print("This message does not contain a file")
     finally:
+        await client.log_out()
         await client.disconnect()
 
 
