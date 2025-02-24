@@ -343,7 +343,11 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 text,
                 reply_markup=subscription_keyboard,
             )
-            text = f"User {update.effective_user.mention_markdown_v2()} reached the limit of 5 summaries per month\."
+            text = (
+                f"User {update.effective_user.mention_markdown_v2()} reached the limit of 5 summaries per month\.\n"
+                f"`user_id: {update.effective_user.id}`\n"
+                f"`chat_id: {update.effective_chat.id}`"
+            )
             admin_msg = AdminChannelMessage(
                 text=text,
                 parse_mode=ParseMode.MARKDOWN_V2,
