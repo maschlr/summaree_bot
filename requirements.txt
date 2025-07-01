@@ -10,7 +10,7 @@ Jinja2
 dnspython
 python-magic
 prettytable
-numpy
+numpy<2.3.0
 pandas
 matplotlib
 telethon
