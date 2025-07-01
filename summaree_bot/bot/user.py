@@ -30,7 +30,7 @@ from ..models.session import DbSessionContext
 from ..templates import get_template
 from ..utils import url
 from . import BotMessage
-from .audio import _get_summary_message
+from .audio import _get_audio_summary_message
 from .constants import (
     FREE_LANGUAGE_IETF_TAGS,
     LANG_TO_RECEIVED_AUDIO_MESSAGE,
@@ -516,6 +516,6 @@ def _demo(update: Update, context: DbSessionContext) -> BotMessage:
         Transcript.sha256_hash == "f5d703775735e608396db4a8bf088a4d581fcc06fda2ae38c7f0e793b9f1b6bd"
     )
     transcript = session.execute(stmt).scalar_one()
-    msg = _get_summary_message(update, context, transcript.summary)
+    msg = _get_audio_summary_message(update, context, transcript.summary)
 
     return msg

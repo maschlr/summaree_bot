@@ -41,7 +41,9 @@ from .premium import get_subscription_keyboard
 _logger = getLogger(__name__)
 
 
-async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Coroutine[Any, Any, BotMessage]:
+async def get_audio_summary_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> Coroutine[Any, Any, BotMessage]:
     context = cast(DbSessionContext, context)
     with Session.begin() as session:
         context.db_session = session
@@ -71,7 +73,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         summary = _summarize(update, context, transcript)
         total_cost = summary.total_cost
-        bot_msg = _get_summary_message(update, context, summary)
+        bot_msg = _get_audio_summary_message(update, context, summary)
         chat = session.get(TelegramChat, update.effective_chat.id)
 
         if transcript.reaction_emoji:
@@ -142,7 +144,7 @@ async def download_large_file(chat_id: int, message_id: int, filepath: Path):
 
 
 @session_context
-def _get_summary_message(update: Update, context: DbSessionContext, summary: Summary) -> BotMessage:
+def _get_audio_summary_message(update: Update, context: DbSessionContext, summary: Summary) -> BotMessage:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
 
@@ -359,7 +361,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
     text = LANG_TO_RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, LANG_TO_RECEIVED_AUDIO_MESSAGE["en"])
     async with asyncio.TaskGroup() as tg:
         start_msg_task = tg.create_task(update.message.reply_text(text))
-        bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
+        bot_response_msg_task = tg.create_task(get_audio_summary_message(update, context))
         tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
 
     start_message = start_msg_task.result()
