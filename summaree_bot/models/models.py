@@ -298,6 +298,9 @@ class Summary(Base):
         # gpt-4o: $0.015 per 1M tokens
         # gpt-4: $0.015 per 1M tokens
         # gpt-3.5-turbo: $0.0015 per 1M tokens
+        if not self.openai_model:
+            return None
+
         match = re.match(r"gpt-4o-mini.*?", self.openai_model)
         if not match:
             # raise NotImplementedError(f"Cost for model {self.openai_model} not implemented")
