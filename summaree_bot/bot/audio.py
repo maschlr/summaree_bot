@@ -278,7 +278,8 @@ def _full_transcript_callback(
     return
 
 
-async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# TODO: refactor this to be able to process text messages as well and move it to a more fitting file
+async def summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if (
         update.message is None
         or update.effective_chat is None

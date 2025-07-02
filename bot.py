@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 from summaree_bot.bot.admin import command_to_handler
-from summaree_bot.bot.audio import transcribe_and_summarize
+from summaree_bot.bot.audio import summarize
 from summaree_bot.bot.db import chat_migration
 from summaree_bot.bot.error import (
     bad_command_handler,
@@ -90,7 +90,7 @@ def main() -> None:
 
     application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(
-        MessageHandler(filters.VOICE | filters.AUDIO | filters.Document.Category("audio/"), transcribe_and_summarize)
+        MessageHandler(filters.VOICE | filters.AUDIO | filters.Document.Category("audio/") | filters.TEXT, summarize)
     )
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))
@@ -105,7 +105,13 @@ def main() -> None:
 
     application.add_handler(
         MessageHandler(
-            filters.ALL & ~filters.VOICE & ~filters.AUDIO & ~filters.COMMAND & ~filters.SUCCESSFUL_PAYMENT, catch_all
+            filters.ALL
+            & ~filters.VOICE
+            & ~filters.AUDIO
+            & ~filters.COMMAND
+            & ~filters.SUCCESSFUL_PAYMENT
+            & ~filters.TEXT,
+            catch_all,
         )
     )
     # chat migrating to SuperChat
