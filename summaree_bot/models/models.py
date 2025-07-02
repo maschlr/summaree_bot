@@ -227,12 +227,12 @@ class JsonList(TypeDecorator):
 class Transcript(Base):
     __tablename__ = "transcript"
     id: Mapped[int] = mapped_column(primary_key=True)
-    file_id: Mapped[str]
-    file_unique_id: Mapped[str] = mapped_column(unique=True)
+    file_id: Mapped[Optional[str]]
+    file_unique_id: Mapped[Optional[str]] = mapped_column(unique=True)
     sha256_hash: Mapped[str] = mapped_column(unique=True)  # hex
     duration: Mapped[Optional[int]]
-    mime_type: Mapped[str]
-    file_size: Mapped[int]
+    mime_type: Mapped[Optional[str]]
+    file_size: Mapped[Optional[int]]
     result: Mapped[str] = mapped_column(
         String, CheckConstraint("result <> ''", name="check_transcript_not_empty"), nullable=False
     )
