@@ -71,11 +71,13 @@ async def get_audio_summary_message(
 
         session.add(transcript)
 
+        # get summary from transcript, get cost, and create a bot message
         summary = _summarize(update, context, transcript)
         total_cost = summary.total_cost
         bot_msg = _get_audio_summary_message(update, context, summary)
         chat = session.get(TelegramChat, update.effective_chat.id)
 
+        # react with an emoji to the users message
         if transcript.reaction_emoji:
             await update.message.set_reaction(ReactionEmoji[transcript.reaction_emoji])
 
@@ -86,14 +88,17 @@ async def get_audio_summary_message(
             "ru": "Транскрипт",
         }
         transcript_button_text = lang_to_transcript.get(update.effective_user.language_code, lang_to_transcript["en"])
-        emoji = "📝" if summary.transcript.input_language is None else summary.transcript.input_language.flag_emoji
-        # if transcript language is None or chat language, show only one button
+        language_emoji = (
+            "📝" if summary.transcript.input_language is None else summary.transcript.input_language.flag_emoji
+        )
+
         if not bot_msg.text:
             [bot_msg] = list(_full_transcript_callback(update, context, summary.transcript_id, translate=False))
         elif summary.transcript.input_language is None or summary.transcript.input_language == chat.language:
+            # if transcript language is None or chat language, show only one button
             button = [
                 InlineKeyboardButton(
-                    f"{emoji} {transcript_button_text}",
+                    f"{language_emoji} {transcript_button_text}",
                     callback_data={
                         "fnc": "full_transcript",
                         "kwargs": {"transcript_id": summary.transcript_id},
@@ -104,7 +109,7 @@ async def get_audio_summary_message(
         else:
             buttons = [
                 InlineKeyboardButton(
-                    f"{emoji} {transcript_button_text}",
+                    f"{language_emoji} {transcript_button_text}",
                     callback_data={
                         "fnc": "full_transcript",
                         "kwargs": {"transcript_id": summary.transcript_id},
@@ -250,7 +255,7 @@ def _full_transcript_callback(
             document=transcript_text.encode("utf-8"),
         )
     else:
-        emoji = (
+        language_flag_emoji = (
             chat.language.flag_emoji
             if translate
             else transcript.input_language.flag_emoji
@@ -258,10 +263,10 @@ def _full_transcript_callback(
             else "❔"
         )
         lang_to_text = {
-            "en": f"*📜 Full transcript in {emoji}:*\n\n",
-            "de": f"*📜 Vollständiges Transcript in {emoji}:*\n\n",
-            "es": f"*📜 Transcripción completa en {emoji}:*\n\n",
-            "ru": f"*📜 Полный транскрипт на {emoji}:*\n\n",
+            "en": f"*📜 Full transcript in {language_flag_emoji}:*\n\n",
+            "de": f"*📜 Vollständiges Transcript in {language_flag_emoji}:*\n\n",
+            "es": f"*📜 Transcripción completa en {language_flag_emoji}:*\n\n",
+            "ru": f"*📜 Полный транскрипт на {language_flag_emoji}:*\n\n",
         }
         heading_text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
         text = heading_text + f"_{escape_markdown(transcript_text, version=2)}_"
