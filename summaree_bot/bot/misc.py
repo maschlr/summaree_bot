@@ -4,7 +4,7 @@ from typing import Any, Callable, cast
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from .audio import full_transcript_callback
+from .common import full_transcript_callback
 from .premium import payment_callback
 from .user import demo, set_lang_callback
 

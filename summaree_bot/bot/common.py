@@ -1,12 +1,13 @@
 import asyncio
-import datetime
 import os
+import re
 import tempfile
 from pathlib import Path
-from typing import Any, Coroutine, Generator, cast
+from typing import Any, Coroutine, Generator, Optional, Union, cast
 
 import magic
-from sqlalchemy import and_, extract, select
+import telegram
+from sqlalchemy import and_, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, MessageLimit, ParseMode, ReactionEmoji
 from telegram.ext import ContextTypes
@@ -14,13 +15,8 @@ from telegram.helpers import escape_markdown
 from telethon.sync import TelegramClient as TelethonClient
 from tqdm.asyncio import tqdm
 
-from ..integrations import (
-    _check_existing_transcript,
-    _extract_file_name,
-    _summarize,
-    _translate_topic,
-    transcribe_file,
-)
+from ..bot import ensure_chat
+from ..integrations import _summarize, _translate_topic, transcribe_file
 from ..integrations.deepl import _translate_text
 from ..logging import getLogger
 from ..models import (
@@ -33,12 +29,84 @@ from ..models import (
 )
 from ..models.session import DbSessionContext, Session, session_context
 from . import AdminChannelMessage, BotDocument, BotMessage
-from .constants import LANG_TO_RECEIVED_AUDIO_MESSAGE
-from .exceptions import EmptyTranscription
-from .premium import get_subscription_keyboard
+from .constants import LANG_TO_RECEIVED_MESSAGE
+from .exceptions import EmptyTranscription, NoActivePremium
+from .premium import check_premium_features
 
 # Enable logging
 _logger = getLogger(__name__)
+
+mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
+
+
+async def process_transcription_request_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await check_premium_features(update, context)
+    except NoActivePremium:
+        return
+
+    _logger.info(f"Transcribing and summarizing message: {update.message}")
+
+    with Session.begin() as session:
+        chat = session.get(TelegramChat, update.effective_chat.id)
+        if chat is None:
+            raise ValueError(f"Could not find chat with id {update.effective_chat.id}")
+        chat_language_code = chat.language.code if chat.language else "en"
+
+    text = LANG_TO_RECEIVED_MESSAGE.get(chat_language_code, LANG_TO_RECEIVED_MESSAGE["en"])
+
+    async with asyncio.TaskGroup() as tg:
+        start_msg_task = tg.create_task(update.message.reply_text(text))
+        bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
+        tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
+
+    start_message = start_msg_task.result()
+    admin_text = None
+    try:
+        bot_response_msg, total_cost = bot_response_msg_task.result()
+    except EmptyTranscription:
+        lang_to_text = {
+            "en": "⚠️ Sorry, I could not transcribe the audio. Please try a different file.",
+            "de": "⚠️ Entschuldigung, Audiodatei konnte nicht transkribiert werden. Bitte versuche eine andere Datei",
+            "es": "⚠️ Lo siento, no pude transcribir el audio. Por favor, inténtalo de nuevo con otro archivo.",
+            "ru": "⚠️ Извините, я не смог расшифровать аудиозапись. Пожалуйста, попробуйте другой файл.",
+        }
+        bot_response_msg = BotMessage(
+            chat_id=update.effective_chat.id,
+            text=lang_to_text.get(chat_language_code, lang_to_text["en"]),
+            reply_to_message_id=update.effective_message.id,
+        )
+        total_cost = None
+        admin_text = (
+            f"⚠️ Empty transcript: \nUser {update.effective_user.mention_markdown_v2()}\n"
+            f"`/get_file {update.effective_message.effective_attachment.file_id}`"
+        )
+
+    if admin_text is None:
+        with Session.begin() as session:
+            user = session.get(TelegramUser, update.effective_user.id)
+            n_summaries = len(user.summaries) if user else 0
+        try:
+            admin_text = (
+                f"📝 Summary \#{n_summaries + 1} created in chat {update.effective_chat.mention_markdown_v2()}"
+                f" by user {update.effective_user.mention_markdown_v2()}"
+            )
+        except TypeError:
+            admin_text = (
+                f"📝 Summary \#{n_summaries + 1} created by user "
+                f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
+            )
+        admin_text += escape_markdown(f"\n💰 Cost: $ {total_cost:.6f}" if total_cost else "", version=2)
+
+    admin_channel_msg = AdminChannelMessage(
+        text=admin_text,
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(start_message.delete())
+        tg.create_task(bot_response_msg.send(context.bot))
+        tg.create_task(admin_channel_msg.send(context.bot))
 
 
 async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Coroutine[Any, Any, BotMessage]:
@@ -46,18 +114,18 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     with Session.begin() as session:
         context.db_session = session
         # check existing transcript via file_unique_id,
-        transcript, voice_or_audio_or_document = _check_existing_transcript(update, context)
-        #   if not exist, download audio (async) to tempdir and transcribe
+        transcript, voice_or_audio_or_document_or_video = _check_existing_transcript(update, context)
+        #  if not exist, download audio (async) to tempdir and transcribe
         if transcript is None:
-            file_name = _extract_file_name(voice_or_audio_or_document)
+            file_name = _extract_file_name(voice_or_audio_or_document_or_video)
             with tempfile.TemporaryDirectory() as tempdir_path_str:
                 # download the file to the folder
                 tempdir_path = Path(tempdir_path_str)
                 file_path = tempdir_path / file_name
-                if voice_or_audio_or_document.file_size > 20 * 1024 * 1024:
+                if voice_or_audio_or_document_or_video.file_size > 20 * 1024 * 1024:
                     await download_large_file(update.effective_chat.id, update.message.message_id, file_path)
                 else:
-                    file = await voice_or_audio_or_document.get_file()
+                    file = await voice_or_audio_or_document_or_video.get_file()
                     await file.download_to_drive(file_path)
 
                 if not file_name.suffix:
@@ -65,7 +133,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     _, suffix = mime.split("/")
                     file_path.rename(file_path.with_suffix(f".{suffix}"))
 
-                transcript = await transcribe_file(update, context, file_path, voice_or_audio_or_document)
+                transcript = await transcribe_file(update, context, file_path, voice_or_audio_or_document_or_video)
 
         session.add(transcript)
 
@@ -133,9 +201,9 @@ async def download_large_file(chat_id: int, message_id: int, filepath: Path):
             with open(filepath, "wb") as fp:
                 async for chunk in tqdm(client.iter_download(message)):
                     fp.write(chunk)
-            print(f"File saved to {filepath}")
+            _logger.info(f"File saved to {filepath}")
         else:
-            print("This message does not contain a file")
+            _logger.warning("This message does not contain a file")
     finally:
         await client.log_out()
         await client.disconnect()
@@ -199,7 +267,11 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         text = f"{hashtags}{msg}"
 
-    return BotMessage(chat_id=update.effective_chat.id, text=text, reply_to_message_id=update.effective_message.id)
+    return BotMessage(
+        chat_id=update.effective_chat.id,
+        text=text,
+        reply_to_message_id=update.effective_message.id,
+    )
 
 
 async def full_transcript_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
@@ -272,145 +344,67 @@ def _full_transcript_callback(
     return
 
 
-async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if (
-        update.message is None
-        or update.effective_chat is None
-        or update.effective_user is None
-        or (
-            (voice := update.message.voice) is None
-            and (audio := update.message.audio) is None
-            and (document := update.message.document) is None
-        )
+@session_context
+@ensure_chat
+def _check_existing_transcript(
+    update: telegram.Update, context: DbSessionContext
+) -> tuple[
+    Optional[Transcript], Union[telegram.Voice, telegram.Audio, telegram.Document, telegram.Video, telegram.VideoNote]
+]:
+    if update.message is None or (
+        update.message.voice is None
+        and update.message.audio is None
+        and update.message.document is None
+        and update.message.video is None
+        and update.message.video_note is None
     ):
-        raise ValueError("The update must contain chat/user/voice/audio message.")
+        raise ValueError("The message must contain a voice or audio or (audio) document or video(note).")
 
-    with Session.begin() as session:
-        # check how many transcripts/summaries have already been created in the current month
-        chat = session.get(TelegramChat, update.effective_chat.id)
-        chat_language_code = chat.language.code if chat else "en"
-        user = session.get(TelegramUser, update.effective_user.id)
-        premium_active = chat.is_premium_active or user.is_premium_active
-        n_summaries = len(chat.summaries) if chat else 0
-        file_size = cast(
-            int, voice.file_size if voice else audio.file_size if audio else document.file_size if document else 0
-        )
-        subscription_keyboard = get_subscription_keyboard(update, context)
-        if file_size > 10 * 1024 * 1024 and not premium_active:
-            lang_to_text = {
-                "en": r"⚠️ Maximum file size for non\-premium is 10MB\. "
-                r"Please send a smaller file or upgrade to `/premium`\.",
-                "de": r"⚠️ Die maximale Dateigröße für Nicht\-Premium\-Nutzer beträgt 10MB\. "
-                r"Bitte sende eine kleinere Datei oder aktualisiere `/premium`\.",
-                "es": r"⚠️ El tamaño máximo de archivo para no\-premium es de 10MB\. "
-                r"Envíe un archivo más pequeño o actualice a `/premium`\.",
-                "ru": r"⚠️ Максимальный размер файла для не\-премиум составляет 10MB\. "
-                r"Отправьте меньший файл или обновитесь до `/premium`\.",
-            }
-            text = lang_to_text.get(chat.language.code, lang_to_text["en"])
-            await update.message.reply_markdown_v2(
-                text,
-                reply_markup=subscription_keyboard,
-            )
-            admin_msg = AdminChannelMessage(
-                text=(
-                    f"User {update.effective_user.mention_markdown_v2()} tried to send "
-                    f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}\n"
-                    f"(in chat {update.effective_chat.mention_markdown_v2()})"
-                ),
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            await admin_msg.send(context.bot)
-            return
+    session = context.db_session
+    if session is None:
+        raise ValueError("There should be a session attached to context")
 
-        current_month = datetime.datetime.now(tz=datetime.UTC).month
-        summaries_this_month = (
-            session.query(Summary)
-            .filter(
-                extract("month", Summary.created_at) == current_month, Summary.tg_chat_id == update.effective_chat.id
-            )
-            .all()
-        )
-        if len(summaries_this_month) >= 5 and not premium_active:
-            lang_to_text = {
-                "en": r"⚠️ Sorry, you have reached the limit of 5 summaries per month\. "
-                r"Please consider upgrading to `/premium` to get unlimited summaries\.",
-                "de": r"⚠️ Sorry, du hast die Grenze von 5 Zusammenfassungen pro Monat erreicht\. "
-                r"Mit Premium erhälts du eine unbegrenzte Anzahl an Zusammenfassungen\.",
-                "es": r"⚠️ Lo sentimos, has alcanzado el límite de 5 resúmenes al mes\. "
-                r"Considere actualizar a `/premium` para obtener resúmenes ilimitados\.",
-                "ru": r"⚠️ Извините, вы достигли ограничения в 5 резюме в месяц\. "
-                r"Пожалуйста, рассмотрите возможность обновления до `/premium` для получения неограниченных резюме\.",
-            }
-
-            # send only a message if no user in the chat has an active premium subscription
-            if not any(user.is_premium_active for user in chat.users):
-                text = lang_to_text.get(chat.language.code, lang_to_text["en"])
-                await update.effective_message.reply_markdown_v2(
-                    text,
-                    reply_markup=subscription_keyboard,
-                )
-
-            admin_text = (
-                f"User {update.effective_user.mention_markdown_v2()} reached the limit of 5 summaries per month\.\n"
-                f"`user_id: {update.effective_user.id}`\n"
-                f"`chat_id: {update.effective_chat.id}`"
-            )
-            admin_msg = AdminChannelMessage(
-                text=admin_text,
-                parse_mode=ParseMode.MARKDOWN_V2,
-            )
-            await admin_msg.send(context.bot)
-            return
-
-    _logger.info(f"Transcribing and summarizing message: {update.message}")
-    text = LANG_TO_RECEIVED_AUDIO_MESSAGE.get(chat_language_code, LANG_TO_RECEIVED_AUDIO_MESSAGE["en"])
-    async with asyncio.TaskGroup() as tg:
-        start_msg_task = tg.create_task(update.message.reply_text(text))
-        bot_response_msg_task = tg.create_task(get_summary_msg(update, context))
-        tg.create_task(context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING))
-
-    start_message = start_msg_task.result()
-    admin_text = None
-    try:
-        bot_response_msg, total_cost = bot_response_msg_task.result()
-    except EmptyTranscription:
-        lang_to_text = {
-            "en": "⚠️ Sorry, I could not transcribe the audio. Please try a different file.",
-            "de": "⚠️ Entschuldigung, Audiodatei konnte nicht transkribiert werden. Bitte versuche eine andere Datei",
-            "es": "⚠️ Lo siento, no pude transcribir el audio. Por favor, inténtalo de nuevo con otro archivo.",
-            "ru": "⚠️ Извините, я не смог расшифровать аудиозапись. Пожалуйста, попробуйте другой файл.",
-        }
-        bot_response_msg = BotMessage(
-            chat_id=update.effective_chat.id,
-            text=lang_to_text.get(chat_language_code, lang_to_text["en"]),
-            reply_to_message_id=update.effective_message.id,
-        )
-        total_cost = None
-        admin_text = (
-            f"⚠️ Empty transcript: \nUser {update.effective_user.mention_markdown_v2()}\n"
-            f"`/get_file {update.effective_message.effective_attachment.file_id}`"
-        )
-
-    if admin_text is None:
-        try:
-            admin_text = (
-                f"📝 Summary \#{n_summaries + 1} created in chat {update.effective_chat.mention_markdown_v2()}"
-                f" by user {update.effective_user.mention_markdown_v2()}"
-            )
-        except TypeError:
-            admin_text = (
-                f"📝 Summary \#{n_summaries + 1} created by user "
-                f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
-            )
-        admin_text += escape_markdown(f"\n💰 Cost: $ {total_cost:.6f}" if total_cost else "", version=2)
-
-    admin_channel_msg = AdminChannelMessage(
-        text=admin_text,
-        parse_mode=ParseMode.MARKDOWN_V2,
+    voice_or_audio_or_document_or_video = cast(
+        Union[telegram.Voice, telegram.Audio, telegram.Document, telegram.Video, telegram.VideoNote],
+        (
+            update.message.voice
+            or update.message.audio
+            or update.message.document
+            or update.message.video
+            or update.message.video_note
+        ),
     )
+    file_unique_id = voice_or_audio_or_document_or_video.file_unique_id
 
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(start_message.delete())
-        tg.create_task(bot_response_msg.send(context.bot))
-        tg.create_task(admin_channel_msg.send(context.bot))
+    stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
+    if transcript := session.scalars(stmt).one_or_none():
+        _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
+
+    return transcript, voice_or_audio_or_document_or_video
+
+
+def _extract_file_name(
+    voice_or_audio_or_document_or_video: Union[
+        telegram.Voice, telegram.Audio, telegram.Document, telegram.Video, telegram.VideoNote
+    ]
+) -> Path:
+    if (
+        hasattr(voice_or_audio_or_document_or_video, "file_name")
+        and voice_or_audio_or_document_or_video.file_name is not None
+    ):
+        file_name = Path(voice_or_audio_or_document_or_video.file_name)
+        sanitized_file_name = voice_or_audio_or_document_or_video.file_unique_id + file_name.suffix
+        return Path(sanitized_file_name)
+
+    # else try to extract the suffix via the mime type or use file_name without suffic
+    match = None
+
+    if mime_type := voice_or_audio_or_document_or_video.mime_type:
+        match = mimetype_pattern.match(mime_type)
+
+    if match is None:
+        file_name = voice_or_audio_or_document_or_video.file_unique_id
+    else:
+        file_name = f"{voice_or_audio_or_document_or_video.file_unique_id}.{match.group('subtype')}"
+
+    return Path(file_name)

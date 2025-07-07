@@ -14,7 +14,7 @@ from telegram.ext import (
 )
 
 from summaree_bot.bot.admin import command_to_handler
-from summaree_bot.bot.audio import transcribe_and_summarize
+from summaree_bot.bot.common import process_transcription_request_message
 from summaree_bot.bot.db import chat_migration
 from summaree_bot.bot.error import (
     bad_command_handler,
@@ -90,7 +90,15 @@ def main() -> None:
 
     application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(
-        MessageHandler(filters.VOICE | filters.AUDIO | filters.Document.Category("audio/"), transcribe_and_summarize)
+        MessageHandler(
+            filters.VOICE | filters.AUDIO | filters.Document.Category("audio/"), process_transcription_request_message
+        )
+    )
+    application.add_handler(
+        MessageHandler(
+            filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/"),
+            process_transcription_request_message,
+        )
     )
     application.add_handler(CallbackQueryHandler(invalid_button_handler, pattern=InvalidCallbackData))
     application.add_handler(CallbackQueryHandler(dispatch_callback))

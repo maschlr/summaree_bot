@@ -6,11 +6,12 @@ import os
 from datetime import datetime, timedelta
 from typing import Mapping, Optional, Sequence, Union, cast
 
-from sqlalchemy import select
+from sqlalchemy import extract, select
 from sqlalchemy.orm import Session
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from ..models import (
     Invoice,
@@ -20,14 +21,17 @@ from ..models import (
     Subscription,
     SubscriptionStatus,
     SubscriptionType,
+    Summary,
     TelegramChat,
     TelegramUser,
 )
 from ..models.session import DbSessionContext
+from ..models.session import Session as SessionMaker
 from ..templates import get_template
 from ..utils import url
 from . import AdminChannelMessage, BotInvoice, BotMessage
 from .db import ensure_chat, session_context
+from .exceptions import NoActivePremium
 
 __all__ = [
     "premium_handler",
@@ -544,3 +548,134 @@ def referral(update: Update, context: DbSessionContext, token: str) -> BotMessag
     )
 
     return [user_msg, admin_group_msg]
+
+
+async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | None:
+    """
+    Check if the message needs premium features:
+    1. Filesize is larger than 10MB
+    2. Current month >= 5 summaries
+
+    Throws a NoActivePremium exception, returns None if all is good and we can proceed
+    """
+    if (
+        update.message is None
+        or update.effective_chat is None
+        or update.effective_user is None
+        or (
+            (voice := update.message.voice) is None
+            and (audio := update.message.audio) is None
+            and (document := update.message.document) is None
+            and (video := update.message.video) is None
+            and (video_note := update.message.video_note) is None
+        )
+    ):
+        raise ValueError("The update must contain chat/user/voice/audio message.")
+
+    with SessionMaker.begin() as session:
+        # check how many transcripts/summaries have already been created in the current month
+        chat = session.get(TelegramChat, update.effective_chat.id)
+        user = session.get(TelegramUser, update.effective_user.id)
+
+        premium_active = chat.is_premium_active or user.is_premium_active
+        if premium_active:
+            return None  # No premium features needed, or user has premium subscription
+
+        # send only a message if no user in the chat has an active premium subscription
+        any_user_in_chat_is_premium = any(user.is_premium_active for user in chat.users)
+        # video messages are a premium feature so we don't check their file size here
+        file_size = cast(
+            int, voice.file_size if voice else audio.file_size if audio else document.file_size if document else 0
+        )
+        subscription_keyboard = get_subscription_keyboard(update, context)
+        if file_size > 10 * 1024 * 1024 and not premium_active:
+            if not any_user_in_chat_is_premium:
+                lang_to_text = {
+                    "en": r"⚠️ Maximum file size for non\-premium is 10MB\. "
+                    r"Please send a smaller file or upgrade to `/premium`\.",
+                    "de": r"⚠️ Die maximale Dateigröße für Nicht\-Premium\-Nutzer beträgt 10MB\. "
+                    r"Bitte sende eine kleinere Datei oder aktualisiere `/premium`\.",
+                    "es": r"⚠️ El tamaño máximo de archivo para no\-premium es de 10MB\. "
+                    r"Envíe un archivo más pequeño o actualice a `/premium`\.",
+                    "ru": r"⚠️ Максимальный размер файла для не\-премиум составляет 10MB\. "
+                    r"Отправьте меньший файл или обновитесь до `/premium`\.",
+                }
+                text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+                await update.message.reply_markdown_v2(
+                    text,
+                    reply_markup=subscription_keyboard,
+                )
+
+            admin_msg = AdminChannelMessage(
+                text=(
+                    f"User {update.effective_user.mention_markdown_v2()} tried to send "
+                    f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}\n"
+                    f"(in chat {update.effective_chat.mention_markdown_v2()})"
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            await admin_msg.send(context.bot)
+            raise NoActivePremium("File size limit reached for non-premium users")
+
+        current_month = dt.datetime.now(tz=dt.UTC).month
+        summaries_this_month = (
+            session.query(Summary)
+            .filter(
+                extract("month", Summary.created_at) == current_month, Summary.tg_chat_id == update.effective_chat.id
+            )
+            .all()
+        )
+        if len(summaries_this_month) >= 5 and not premium_active:
+            if not any_user_in_chat_is_premium:
+                lang_to_text = {
+                    "en": r"⚠️ Sorry, you have reached the limit of 5 summaries per month\. "
+                    r"Please consider upgrading to `/premium` to get unlimited summaries\.",
+                    "de": r"⚠️ Sorry, du hast die Grenze von 5 Zusammenfassungen pro Monat erreicht\. "
+                    r"Mit Premium erhälts du eine unbegrenzte Anzahl an Zusammenfassungen\.",
+                    "es": r"⚠️ Lo sentimos, has alcanzado el límite de 5 resúmenes al mes\. "
+                    r"Considere actualizar a `/premium` para obtener resúmenes ilimitados\.",
+                    "ru": r"⚠️ Извините, вы достигли ограничения в 5 резюме в месяц\. "
+                    r"Пожалуйста, рассмотрите возможность обновления до `/premium` для"
+                    r" получения неограниченных резюме\.",
+                }
+
+                text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+                await update.effective_message.reply_markdown_v2(
+                    text,
+                    reply_markup=subscription_keyboard,
+                )
+
+            admin_text = (
+                f"User {update.effective_user.mention_markdown_v2()} reached the limit of 5 summaries per month\.\n"
+                f"`user_id: {update.effective_user.id}`\n"
+                f"`chat_id: {update.effective_chat.id}`"
+            )
+            admin_msg = AdminChannelMessage(
+                text=admin_text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            await admin_msg.send(context.bot)
+            raise NoActivePremium("Monthly message limit reached for non-premium users")
+
+        if video or video_note:
+            lang_to_text = {
+                "en": "🎥 Video messages are a premium feature. Please upgrade to premium.",
+                "de": "🎥 Video Nachrichten sind eine Premium-Funktion. Bitte aktualisiere auf Premium.",
+                "es": "🎥 Los mensajes de video son una función premium. Por favor, actualiza a premium.",
+                "ru": "🎥 Видеосообщения - это премиум-функция. Пожалуйста, обновитесь до премиум.",
+            }
+            user_return_text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+            await update.effective_message.reply_markdown_v2(
+                user_return_text,
+                reply_markup=subscription_keyboard,
+            )
+
+            admin_message = AdminChannelMessage(
+                text=(
+                    f"User {update.effective_user.mention_markdown_v2()} tried to send a video message "
+                    f"(in chat {update.effective_chat.mention_markdown_v2()})"
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            await admin_message.send(context.bot)
+            raise NoActivePremium("Video messages are a premium feature")

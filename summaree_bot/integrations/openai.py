@@ -3,12 +3,11 @@ import datetime as dt
 import hashlib
 import logging
 import os
-import re
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 
 import telegram
 from openai import AsyncOpenAI, OpenAI
@@ -17,7 +16,6 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from telegram.ext import ContextTypes
 
-from ..bot import ensure_chat
 from ..bot.exceptions import EmptyTranscription
 from ..models import Language, Summary, Topic, Transcript
 from ..models.session import DbSessionContext, Session, session_context
@@ -25,68 +23,22 @@ from .audio import split_audio, transcode_ffmpeg
 
 _logger = logging.getLogger(__name__)
 
-mimetype_pattern = re.compile(r"(?P<type>\w+)/(?P<subtype>\w+)")
 client = OpenAI()
 aclient = AsyncOpenAI()
 
 __all__ = [
-    "_check_existing_transcript",
-    "_extract_file_name",
     "transcribe_file",
     "_summarize",
 ]
 
 
-@session_context
-@ensure_chat
-def _check_existing_transcript(
-    update: telegram.Update, context: DbSessionContext
-) -> tuple[Optional[Transcript], Union[telegram.Voice, telegram.Audio, telegram.Document]]:
-    if update.message is None or (
-        update.message.voice is None and update.message.audio is None and update.message.document is None
-    ):
-        raise ValueError("The message must contain a voice or audio or (audio) document.")
-
-    session = context.db_session
-    if session is None:
-        raise ValueError("There should be a session attached to context")
-    voice_or_audio_or_document = cast(
-        Union[telegram.Voice, telegram.Audio, telegram.Document],
-        (update.message.voice or update.message.audio or update.message.document),
-    )
-    file_unique_id = voice_or_audio_or_document.file_unique_id
-
-    stmt = select(Transcript).where(Transcript.file_unique_id == file_unique_id)
-    if transcript := session.scalars(stmt).one_or_none():
-        _logger.info(f"Using already existing transcript: {transcript} with file_unique_id: {file_unique_id}")
-    return transcript, voice_or_audio_or_document
-
-
-def _extract_file_name(voice_or_audio_or_document: Union[telegram.Voice, telegram.Audio, telegram.Document]) -> Path:
-    if hasattr(voice_or_audio_or_document, "file_name") and voice_or_audio_or_document.file_name is not None:
-        file_name = Path(voice_or_audio_or_document.file_name)
-        sanitized_file_name = voice_or_audio_or_document.file_unique_id + file_name.suffix
-        return Path(sanitized_file_name)
-
-    # else try to extract the suffix via the mime type or use file_name without suffic
-    match = None
-
-    if mime_type := voice_or_audio_or_document.mime_type:
-        match = mimetype_pattern.match(mime_type)
-
-    if match is None:
-        file_name = voice_or_audio_or_document.file_unique_id
-    else:
-        file_name = f"{voice_or_audio_or_document.file_unique_id}.{match.group('subtype')}"
-
-    return Path(file_name)
-
-
 async def transcribe_file(
     update: telegram.Update,
-    context: ContextTypes.DEFAULT_TYPE,
+    _context: ContextTypes.DEFAULT_TYPE,
     file_path: Path,
-    voice_or_audio_or_document: Union[telegram.Voice, telegram.Audio],
+    voice_or_audio_or_document_or_video: Union[
+        telegram.Voice, telegram.Audio, telegram.Document, telegram.Video, telegram.VideoNote
+    ],
 ) -> Transcript:
     with open(file_path, "rb") as fp:
         m = hashlib.sha256()
@@ -102,13 +54,25 @@ async def transcribe_file(
 
     if (
         update.message is None
-        or (update.message.voice is None and update.message.audio is None and update.message.document is None)
+        or (
+            update.message.voice is None
+            and update.message.audio is None
+            and update.message.document is None
+            and update.message.video is None
+            and update.message.video_note is None
+        )
         or update.effective_user is None
     ):
-        raise ValueError("The update must contain a voice or audio message (and an effective_user).")
-    voice_or_audio_or_document = cast(
-        Union[telegram.Voice, telegram.Audio, telegram.Document],
-        (update.message.voice or update.message.audio or update.message.document),
+        raise ValueError("The update must contain a voice or audio or a video message(and an effective_user).")
+    voice_or_audio_or_document_or_video = cast(
+        Union[telegram.Voice, telegram.Audio, telegram.Document, telegram.Video, telegram.VideoNote],
+        (
+            update.message.voice
+            or update.message.audio
+            or update.message.document
+            or update.message.video
+            or update.message.video_note
+        ),
     )
 
     # convert the unsupported file (e.g. .ogg for normal voice) to .mp3
@@ -121,7 +85,7 @@ async def transcribe_file(
         "ogg",
         "wav",
         "webm",
-    }:
+    } or (update.message.video or update.message.video_note):
         supported_file_path = transcode_ffmpeg(file_path)
     else:
         supported_file_path = file_path
@@ -139,12 +103,14 @@ async def transcribe_file(
         transcript = Transcript(
             created_at=update.effective_message.date,
             finished_at=dt.datetime.now(dt.UTC),
-            file_unique_id=voice_or_audio_or_document.file_unique_id,
-            file_id=voice_or_audio_or_document.file_id,
+            file_unique_id=voice_or_audio_or_document_or_video.file_unique_id,
+            file_id=voice_or_audio_or_document_or_video.file_id,
             sha256_hash=sha256_hash,
-            duration=voice_or_audio_or_document.duration if hasattr(voice_or_audio_or_document, "duration") else None,
-            mime_type=voice_or_audio_or_document.mime_type,
-            file_size=voice_or_audio_or_document.file_size,
+            duration=voice_or_audio_or_document_or_video.duration
+            if hasattr(voice_or_audio_or_document_or_video, "duration")
+            else None,
+            mime_type=voice_or_audio_or_document_or_video.mime_type,
+            file_size=voice_or_audio_or_document_or_video.file_size,
             result=whisper_transcription.text,
             input_language=transcript_language,
             total_seconds=whisper_transcription.total_seconds,
