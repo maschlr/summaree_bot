@@ -153,18 +153,15 @@ class TelegramUser(Base):
     def get_by_id_or_username(cls, session: Session, user_id_or_username: str) -> Optional["TelegramUser"]:
         try:
             user_id = int(user_id_or_username)
-        except ValueError:
-            user_id = None
-            username = user_id_or_username
-
-        if user_id is not None:
             stmt = select(cls).where(cls.id == user_id)
-        else:
+        except ValueError:
+            username = user_id_or_username
             stmt = select(cls).where(cls.username == username)
+
         return session.execute(stmt).scalar_one_or_none()
 
     @property
-    def is_summaree_premium(self) -> bool:
+    def is_premium_active(self) -> bool:
         """Check if the user has a summaree premium subscription"""
         return any(
             subscription.status in {SubscriptionStatus.active, SubscriptionStatus.extended}

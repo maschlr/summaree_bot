@@ -15,7 +15,14 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown, mention_html
 
-from ..models import Invoice, InvoiceStatus, Subscription, Summary, TelegramUser
+from ..models import (
+    Invoice,
+    InvoiceStatus,
+    Subscription,
+    Summary,
+    TelegramChat,
+    TelegramUser,
+)
 from ..models.session import DbSessionContext, session_context
 from . import AdminChannelMessage, BotDocument, BotMessage
 from .premium import create_subscription
@@ -176,7 +183,7 @@ def _top(_update: Update, context: DbSessionContext) -> Generator[AdminChannelMe
             if not user:
                 continue
             table.add_row(
-                [rank, f"{user.username or user.first_name}" + (" ⭐" if user.is_summaree_premium else ""), count]
+                [rank, f"{user.username or user.first_name}" + (" ⭐" if user.is_premium_active else ""), count]
             )
             rank += 1
 
@@ -297,34 +304,51 @@ def _gift_premium(
     """Synchronous part of the /gift_premium command to gift premium to a user."""
     session = context.db_session
     try:
-        user_id_or_username, days = context.args
+        chat_id_or_username, days = context.args
     except ValueError:
-        yield AdminChannelMessage(text="Usage: /gift <user_id_or_username> <days>")
+        yield AdminChannelMessage(text="Usage: /gift <chat_id_or_username> <days>")
         return
 
     try:
-        user_id = int(user_id_or_username)
-        user = session.get(TelegramUser, user_id)
+        chat_id = int(chat_id_or_username)
+        chat = session.get(TelegramChat, chat_id)
     except ValueError:
-        user = session.scalar(select(TelegramUser).where(TelegramUser.username == user_id_or_username))
+        chat = session.scalar(select(TelegramChat).where(TelegramChat.username == chat_id_or_username))
 
-    if user is None:
-        yield AdminChannelMessage(text=f"User {user_id_or_username} not found.")
+    if chat is None:
+        yield AdminChannelMessage(text=f"Chat {chat_id_or_username} not found.")
         return
 
-    subscription: Subscription = create_subscription(session, user.id, int(days), to_be_paid=False)
+    subscription: Subscription = create_subscription(update, session, chat.id, int(days), to_be_paid=False)
     sub_end_date_str = subscription.end_date.strftime("%x")
-    lang_to_text = {
-        "en": f"🎁 A gift for you: summar.ee premium until {sub_end_date_str})",
-        "de": f"🎁 Ein Geschenk für dich: summar.ee Premium features bis zum {sub_end_date_str}",
-        "es": f"🎁 Un regalo para ti: summar.ee Premium features hasta el {sub_end_date_str}",
-        "ru": f"🎁 Подарок для вас: summar.ee Premium до {sub_end_date_str}",
-    }
-    text = lang_to_text.get(user.language_code, lang_to_text["en"])
 
-    yield BotMessage(chat_id=user.id, text=text)
+    if subscription.chat_id > 0:
+        # private chat
+        lang_to_text = {
+            "en": f"🎁 A gift for you: summar.ee premium until {sub_end_date_str})",
+            "de": f"🎁 Ein Geschenk für dich: summar.ee Premium features bis zum {sub_end_date_str}",
+            "es": f"🎁 Un regalo para ti: summar.ee Premium features hasta el {sub_end_date_str}",
+            "ru": f"🎁 Подарок для вас: summar.ee Premium до {sub_end_date_str}",
+        }
+    else:
+        # group chat
+        lang_to_text = {
+            "en": f"🎁 Premium gifted to {mention_html(chat.id, chat.title or chat.username)} until {sub_end_date_str}",
+            "de": (
+                f"🎁 Premium für {mention_html(chat.id, chat.title or chat.username)}"
+                f" bis zum {sub_end_date_str} geschenkt"
+            ),
+            "es": (
+                f"🎁 Premium regalado a {mention_html(chat.id, chat.title or chat.username)}"
+                f" hasta el {sub_end_date_str}"
+            ),
+            "ru": f"🎁 Премиум подарен {mention_html(chat.id, chat.title or chat.username)} до {sub_end_date_str}",
+        }
+    text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+
+    yield BotMessage(chat_id=chat.id, text=text)
     yield AdminChannelMessage(
-        text=f"Premium gifted to {mention_html(user.id, user.username or user.first_name)} until {sub_end_date_str}",
+        text=f"Premium gifted to {mention_html(chat.id, chat.title or chat.username)} until {sub_end_date_str}",
         parse_mode=ParseMode.HTML,
     )
 
