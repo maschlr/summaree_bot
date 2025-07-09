@@ -199,7 +199,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         text = f"{hashtags}{msg}"
 
-    return BotMessage(chat_id=update.effective_chat.id, text=text)
+    return BotMessage(chat_id=update.effective_message.chat_id, text=text)
 
 
 async def full_transcript_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
