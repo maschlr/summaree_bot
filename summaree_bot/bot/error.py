@@ -1,5 +1,4 @@
 import json
-import os
 import traceback
 from typing import Iterator, Union
 
@@ -8,7 +7,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..logging import getLogger
-from . import BotMessage
+from . import AdminChannelMessage
 from .helpers import wrap_in_pre
 
 # Enable logging
@@ -28,7 +27,7 @@ async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> Iterator[BotMessage]:
+def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> Iterator[AdminChannelMessage]:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
     _logger.error("Exception while handling an update:", exc_info=context.error)
@@ -49,12 +48,8 @@ def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_
         f"context.user_data = {str(context.user_data)}\n"
     )
 
-    admin_chat_id = os.getenv("ADMIN_CHAT_ID")
-    if admin_chat_id is None:
-        raise ValueError("ADMIN_CHAT_ID environment variable not set")
-
     for msg in (message_generic, message_traceback, message_update):
-        yield BotMessage(chat_id=admin_chat_id, text=msg[:4096], parse_mode=ParseMode.HTML, pool_timeout=10)
+        yield AdminChannelMessage(text=msg[:4096], parse_mode=ParseMode.HTML, pool_timeout=10)
 
 
 async def error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> None:
