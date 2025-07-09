@@ -199,7 +199,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         text = f"{hashtags}{msg}"
 
-    return BotMessage(chat_id=update.effective_message.chat_id, text=text)
+    return BotMessage(chat_id=update.effective_chat.id, text=text, reply_to_message_id=update.effective_message.id)
 
 
 async def full_transcript_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, **kwargs) -> None:
@@ -267,6 +267,7 @@ def _full_transcript_callback(
             chat_id=chat.id,
             text=text,
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_to_message_id=update.effective_message.id,
         )
     return
 
@@ -383,6 +384,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         bot_response_msg = BotMessage(
             chat_id=update.effective_chat.id,
             text=lang_to_text.get(chat_language_code, lang_to_text["en"]),
+            reply_to_message_id=update.effective_message.id,
         )
         total_cost = None
         admin_text = (

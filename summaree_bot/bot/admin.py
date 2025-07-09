@@ -346,7 +346,7 @@ def _gift_premium(
         }
     text = lang_to_text.get(chat.language.code, lang_to_text["en"])
 
-    yield BotMessage(chat_id=chat.id, text=text)
+    yield BotMessage(chat_id=chat.id, text=text, reply_to_message_id=update.effective_message.id)
     yield AdminChannelMessage(
         text=f"Premium gifted to {mention_html(chat.id, chat.title or chat.username)} until {sub_end_date_str}",
         parse_mode=ParseMode.HTML,

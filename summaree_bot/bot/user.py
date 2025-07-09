@@ -121,10 +121,11 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             kwargs["translations"] = translations
         text = get_lang_msg(**kwargs)
         return BotMessage(
-            chat_id=chat.id,
+            chat_id=update.effective_message.chat_id,
             text=text,
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup,
+            reply_to_message_id=update.effective_message.id,
         )
 
     target_language_ietf_tag = context.args[0].lower()
@@ -138,7 +139,8 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         ietf_tag = update.effective_user.language_code
         prefix = lang_to_prefix.get(ietf_tag, lang_to_prefix["en"])
         return BotMessage(
-            chat_id=chat.id,
+            chat_id=update.effective_message.chat_id,
+            reply_to_message_id=update.effective_message.id,
             text=get_lang_msg(prefix, languages, example_suffix),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=_get_lang_inline_keyboard(update, context),
@@ -176,10 +178,11 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             kwargs["translations"] = translations
 
         return BotMessage(
-            chat_id=chat.id,
+            chat_id=update.effective_message.chat_id,
             text=get_lang_msg(**kwargs),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup,
+            reply_to_message_id=update.effective_message.id,
         )
 
     [target_language] = [lang for lang in languages if lang.ietf_tag == target_language_ietf_tag]
@@ -201,8 +204,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         template = lang_txt_templates.get(ietf_tag, lang_txt_templates["en"])
         text = template.format(lang_txt=lang_txt)
         return BotMessage(
-            chat_id=chat.id,
-            text=text,
+            chat_id=update.effective_message.chat_id, text=text, reply_to_message_id=update.effective_message.id
         )
     else:
         other_available_languages = [lang for lang in languages if lang.ietf_tag != target_language_ietf_tag]
@@ -217,10 +219,11 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         prefix = template.format(lang_txt=escape_markdown(lang_txt))
 
         return BotMessage(
-            chat_id=chat.id,
+            chat_id=update.effective_message.chat_id,
             text=get_lang_msg(prefix, other_available_languages, example_suffix),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=_get_lang_inline_keyboard(update, context),
+            reply_to_message_id=update.effective_message.id,
         )
 
 
@@ -401,6 +404,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             chat_id=update.message.chat_id,
             text=escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)"),
             parse_mode=ParseMode.MARKDOWN_V2,
+            reply_to_message_id=update.effective_message.id,
         )
         await bot_msg.send(context.bot)
         raise
@@ -441,6 +445,7 @@ def _help_handler(update: Update, context: DbSessionContext, commands: Sequence[
         text=text,
         reply_markup=reply_markup,
         parse_mode=ParseMode.HTML,
+        reply_to_message_id=update.effective_message.id,
     )
     return bot_msg
 
@@ -458,6 +463,7 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text=text,
         chat_id=update.effective_chat.id,
         parse_mode=ParseMode.MARKDOWN_V2,
+        reply_to_message_id=update.effective_message.id,
     )
     await msg.send(context.bot)
 
@@ -475,6 +481,7 @@ async def terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text=text,
         chat_id=update.effective_chat.id,
         parse_mode=ParseMode.MARKDOWN_V2,
+        reply_to_message_id=update.effective_message.id,
     )
     await msg.send(context.bot)
 

@@ -55,7 +55,12 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
     # case 1: referral token is not active
     if not tg_user.referral_token_active:
         text = "✋💸 In order to use referrals, your token needs to be activated\.\n Please contact `/support`\."
-        return BotMessage(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN_V2)
+        return BotMessage(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_to_message_id=update.effective_message.id,
+        )
     # case 2: list referrals and the total amount of stars
     else:
         n_referrals = len(tg_user.referrals)
@@ -80,6 +85,7 @@ def _referral_handler(update: Update, context: DbSessionContext) -> BotMessage:
                 ]
             ),
             parse_mode=ParseMode.MARKDOWN,
+            reply_to_message_id=update.effective_message.id,
         )
 
 
@@ -205,6 +211,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
             chat_id=update.effective_chat.id,
             text=text,
             reply_markup=reply_markup,
+            reply_to_message_id=update.effective_message.id,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
     # case 2: chat has no active subscription
@@ -218,6 +225,7 @@ def _premium_handler(update: Update, context: DbSessionContext) -> BotMessage:
             chat_id=update.effective_chat.id,
             text=text,
             reply_markup=reply_markup,
+            reply_to_message_id=update.effective_message.id,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
 
@@ -455,6 +463,7 @@ def _successful_payment_callback(update: Update, context: DbSessionContext) -> B
     return BotMessage(
         chat_id=update.effective_chat.id,
         text=lang_to_text.get(update.effective_user.language_code, lang_to_text["en"]),
+        reply_to_message_id=update.effective_message.id,
     )
 
 
@@ -482,6 +491,7 @@ def referral(update: Update, context: DbSessionContext, token: str) -> BotMessag
         return BotMessage(
             chat_id=update.message.chat_id,
             text="You have already used premium. You are not eligible for a referral.",
+            reply_to_message_id=update.effective_message.id,
         )
 
     # check if token is valid/active
@@ -491,6 +501,7 @@ def referral(update: Update, context: DbSessionContext, token: str) -> BotMessag
         return BotMessage(
             chat_id=update.message.chat_id,
             text="😵‍💫 Sorry, the referral token is invalid or expired.",
+            reply_to_message_id=update.effective_message.id,
         )
     tg_user.referred_by = referred_by_user
 
@@ -527,10 +538,7 @@ def referral(update: Update, context: DbSessionContext, token: str) -> BotMessag
         ),
     }
     text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
-    user_msg = BotMessage(
-        text=text,
-        chat_id=update.effective_chat.id,
-    )
+    user_msg = BotMessage(text=text, chat_id=update.effective_chat.id, reply_to_message_id=update.effective_message.id)
     admin_group_msg = AdminChannelMessage(
         text=f"User {tg_user.username or tg_user.first_name} activated 14 day trial premium subscription"
     )
