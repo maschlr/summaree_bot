@@ -87,7 +87,7 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         emoji = "📝" if summary.transcript.input_language is None else summary.transcript.input_language.flag_emoji
         # if transcript language is None or chat language, show only one button
         if not bot_msg.text:
-            [bot_msg] = list(_full_transcript_callback(update, context, summary.transcript_id, translate=False))
+            [bot_msg] = list(_full_transcript_callback(update, context, summary.transcript_id))
         elif summary.transcript.input_language is None or summary.transcript.input_language == chat.language:
             button = [
                 InlineKeyboardButton(
@@ -193,7 +193,7 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
                 f"Язык резюме: {chat.language.flag_emoji}",
             ],
         }
-        prefix_lines = lang_to_lang_prefix.get(update.effective_user.language_code, lang_to_lang_prefix["en"])
+        prefix_lines = lang_to_lang_prefix.get(chat.language.code, lang_to_lang_prefix["en"])
         prefix = "\n".join(prefix_lines)
         text = f"{hashtags}{prefix}\n\n{msg}"
     else:
@@ -261,10 +261,10 @@ def _full_transcript_callback(
             "es": f"*📜 Transcripción completa en {emoji}:*\n\n",
             "ru": f"*📜 Полный транскрипт на {emoji}:*\n\n",
         }
-        heading_text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
+        heading_text = lang_to_text.get(chat.language.code, lang_to_text["en"])
         text = heading_text + f"_{escape_markdown(transcript_text, version=2)}_"
         yield BotMessage(
-            chat_id=update.effective_chat.id,
+            chat_id=chat.id,
             text=text,
             parse_mode=ParseMode.MARKDOWN_V2,
         )
@@ -288,12 +288,13 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
         # check how many transcripts/summaries have already been created in the current month
         chat = session.get(TelegramChat, update.effective_chat.id)
         user = session.get(TelegramUser, update.effective_user.id)
-        n_summaries = len(user.summaries) if user else 0
+        premium_active = chat.is_premium_active or user.is_premium_active
+        n_summaries = len(chat.summaries) if chat else 0
         file_size = cast(
             int, voice.file_size if voice else audio.file_size if audio else document.file_size if document else 0
         )
         subscription_keyboard = get_subscription_keyboard(update, context)
-        if file_size > 10 * 1024 * 1024 and not chat.is_premium_active:
+        if file_size > 10 * 1024 * 1024 and not premium_active:
             lang_to_text = {
                 "en": r"⚠️ Maximum file size for non\-premium is 10MB\. "
                 r"Please send a smaller file or upgrade to `/premium`\.",
@@ -304,7 +305,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 "ru": r"⚠️ Максимальный размер файла для не\-премиум составляет 10MB\. "
                 r"Отправьте меньший файл или обновитесь до `/premium`\.",
             }
-            text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
+            text = lang_to_text.get(chat.language.code, lang_to_text["en"])
             await update.message.reply_markdown_v2(
                 text,
                 reply_markup=subscription_keyboard,
@@ -312,7 +313,8 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             admin_msg = AdminChannelMessage(
                 text=(
                     f"User {update.effective_user.mention_markdown_v2()} tried to send "
-                    f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}"
+                    f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}\n"
+                    f"(in chat {update.effective_chat.mention_markdown_v2()})"
                 ),
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
@@ -327,7 +329,7 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
             )
             .all()
         )
-        if len(summaries_this_month) >= 5 and not chat.is_premium_active:
+        if len(summaries_this_month) >= 5 and not premium_active:
             lang_to_text = {
                 "en": r"⚠️ Sorry, you have reached the limit of 5 summaries per month\. "
                 r"Please consider upgrading to `/premium` to get unlimited summaries\.",
@@ -338,25 +340,29 @@ async def transcribe_and_summarize(update: Update, context: ContextTypes.DEFAULT
                 "ru": r"⚠️ Извините, вы достигли ограничения в 5 резюме в месяц\. "
                 r"Пожалуйста, рассмотрите возможность обновления до `/premium` для получения неограниченных резюме\.",
             }
-            text = lang_to_text.get(update.effective_user.language_code, lang_to_text["en"])
-            await update.effective_message.reply_markdown_v2(
-                text,
-                reply_markup=subscription_keyboard,
-            )
-            text = (
+
+            # send only a message if no user in the chat has an active premium subscription
+            if not any(user.is_premium_active for user in chat.users):
+                text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+                await update.effective_message.reply_markdown_v2(
+                    text,
+                    reply_markup=subscription_keyboard,
+                )
+
+            admin_text = (
                 f"User {update.effective_user.mention_markdown_v2()} reached the limit of 5 summaries per month\.\n"
                 f"`user_id: {update.effective_user.id}`\n"
                 f"`chat_id: {update.effective_chat.id}`"
             )
             admin_msg = AdminChannelMessage(
-                text=text,
+                text=admin_text,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
             await admin_msg.send(context.bot)
             return
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
-    text = LANG_TO_RECEIVED_AUDIO_MESSAGE.get(update.effective_user.language_code, LANG_TO_RECEIVED_AUDIO_MESSAGE["en"])
+    text = LANG_TO_RECEIVED_AUDIO_MESSAGE.get(update.effective_chat.language_code, LANG_TO_RECEIVED_AUDIO_MESSAGE["en"])
     async with asyncio.TaskGroup() as tg:
         start_msg_task = tg.create_task(update.message.reply_text(text))
         bot_response_msg_task = tg.create_task(get_summary_msg(update, context))

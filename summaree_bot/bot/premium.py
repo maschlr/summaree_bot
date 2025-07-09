@@ -245,19 +245,17 @@ def _payment_callback(
     if product is None:
         raise ValueError(f"product {product_id} not found in database")
 
-    chat_id = update.effective_chat.id
-    tg_user = session.get(TelegramUser, update.effective_user.id)
-
     # create subscription
     start_date = datetime.now(dt.UTC)
     days = product.premium_period.value
     end_date = start_date + timedelta(days=days)
     # TODO: handle case when subscription is extended
+    chat_id = update.effective_chat.id
     subscription = create_subscription(
-        session,
-        tg_user_id=tg_user.id,
-        duration=product.premium_period.value,
+        update=update,
+        session=session,
         chat_id=chat_id,
+        duration=product.premium_period.value,
         start_date=start_date,
     )
 
@@ -292,8 +290,9 @@ def _payment_callback(
     description = lang_to_description.get(update.effective_user.language_code, lang_to_description["en"])
     prices = [LabeledPrice(description, price)]
 
+    # create invoice
     invoice = Invoice(
-        tg_user_id=tg_user.id,
+        tg_user_id=update.effective_user.id,
         chat_id=chat_id,
         product_id=product.id,
         subscription=subscription,
@@ -322,18 +321,16 @@ def _payment_callback(
 
 
 def create_subscription(
+    update: Update,
     session: Session,
-    tg_user_id: int,
+    chat_id: int,
     duration: int,
-    chat_id: Optional[int] = None,
     start_date: Optional[datetime] = None,
     to_be_paid: bool = True,
-) -> int:
-    tg_user = session.get(TelegramUser, tg_user_id)
-    if tg_user is None:
-        raise ValueError(f"User {tg_user_id} not found")
-    if chat_id is None:
-        chat_id = tg_user_id
+) -> Subscription:
+    tg_chat = session.get(TelegramChat, chat_id)
+    if tg_chat is None:
+        raise ValueError(f"Chat {chat_id} not found")
     if start_date is None:
         start_date = datetime.now(dt.UTC)
     end_date = start_date + timedelta(days=duration)
@@ -351,8 +348,22 @@ def create_subscription(
             active=True,
         )
 
+    # create subscription
+    chat_id = tg_chat.id
+    if chat_id > 0:
+        # if chat_id is positive, it is a private chat
+        tg_user_id = chat_id
+    else:
+        # if chat_id is negative, it is a group chat
+        # -> create a separate subscription for the user
+        tg_user_id = update.effective_user.id
+        user_subscription = Subscription(
+            tg_user_id=tg_user_id, chat_id=tg_user_id, start_date=start_date, end_date=end_date, **sub_kwargs
+        )
+        session.add(user_subscription)
+
     subscription = Subscription(
-        tg_user=tg_user, chat_id=chat_id, start_date=start_date, end_date=end_date, **sub_kwargs
+        tg_user_id=tg_user_id, chat_id=chat_id, start_date=start_date, end_date=end_date, **sub_kwargs
     )
     session.add(subscription)
     session.flush()
