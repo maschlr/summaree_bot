@@ -72,10 +72,12 @@ async def process_transcription_request_message(update: Update, context: Context
             "ru": "⚠️ Извините, я не смог расшифровать аудиозапись. Пожалуйста, попробуйте другой файл.",
         }
         bot_response_msg = BotMessage(
-            chat_id=update.effective_chat.id,
-            text=lang_to_text.get(chat_language_code, lang_to_text["en"]),
-            reply_to_message_id=update.effective_message.id,
+            chat_id=update.effective_chat.id, text=lang_to_text.get(chat_language_code, lang_to_text["en"])
         )
+        if update.effective_message.is_topic_message:
+            bot_response_msg.reply_to_message_id = update.effective_message.message_thread_id
+        else:
+            bot_response_msg.reply_to_message_id = update.effective_message.id
         total_cost = None
         admin_text = (
             f"⚠️ Empty transcript: \nUser {update.effective_user.mention_markdown_v2()}\n"
@@ -270,7 +272,9 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     return BotMessage(
         chat_id=update.effective_chat.id,
         text=text,
-        reply_to_message_id=update.effective_message.id,
+        reply_to_message_id=update.effective_message.message_thread_id
+        if update.effective_message.is_topic_message
+        else update.effective_message.id,
     )
 
 
@@ -339,7 +343,9 @@ def _full_transcript_callback(
             chat_id=chat.id,
             text=text,
             parse_mode=ParseMode.MARKDOWN_V2,
-            reply_to_message_id=update.effective_message.id,
+            reply_to_message_id=update.effective_message.message_thread_id
+            if update.effective_message.is_topic_message
+            else update.effective_message.id,
         )
     return
 
