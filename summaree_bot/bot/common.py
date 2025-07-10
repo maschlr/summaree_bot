@@ -106,7 +106,8 @@ async def process_transcription_request_message(update: Update, context: Context
     )
 
     async with asyncio.TaskGroup() as tg:
-        tg.create_task(start_message.delete())
+        if start_message.is_accessible and start_message.write_access_allowed:
+            tg.create_task(start_message.delete())
         tg.create_task(bot_response_msg.send(context.bot))
         tg.create_task(admin_channel_msg.send(context.bot))
 
