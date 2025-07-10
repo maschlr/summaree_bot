@@ -320,7 +320,9 @@ def _full_transcript_callback(
     if len(transcript_text) >= MessageLimit.MAX_TEXT_LENGTH:
         yield BotDocument(
             chat_id=update.effective_chat.id,
-            reply_to_message_id=update.effective_message.id,
+            reply_to_message_id=update.effective_message.message_thread_id
+            if update.effective_message.is_topic_message
+            else update.effective_message.id,
             filename="transcript.txt",
             document=transcript_text.encode("utf-8"),
         )
