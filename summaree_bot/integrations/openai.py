@@ -340,7 +340,8 @@ def get_openai_chatcompletion(transcript: str) -> ParsedChatCompletion:
         " and you need to extract the following information:\n"
         "1. The language of the message using the IETF language tag format (e.g. 'en', 'de', 'zh', etc.)\n"
         "2. The topics discussed in the message. The topics should be written in the language of the transcript."
-        " Write them as bullet points, each topic described in a concise but complete sentence.\n"
+        " Write them as bullet points, each topic described in a concise but complete sentence."
+        " Avoid using 'The speaker' or anything similar. Output only the pure information.\n"
         "3. ONE emoji that best describes the message.\n"
         "4. UP TO THREE hashtags that best describe the message. Make sure to prefix them with ONLY with a '#' symbol."
     )
