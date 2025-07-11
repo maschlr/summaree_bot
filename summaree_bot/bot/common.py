@@ -84,7 +84,7 @@ async def process_transcription_request_message(update: Update, context: Context
             f"`/get_file {update.effective_message.effective_attachment.file_id}`"
         )
 
-    if admin_text is None:
+    if admin_text is None and bot_response_msg is not None:
         with Session.begin() as session:
             user = session.get(TelegramUser, update.effective_user.id)
             n_summaries = len(user.summaries) if user else 0
@@ -99,6 +99,8 @@ async def process_transcription_request_message(update: Update, context: Context
                 f"{update.effective_user.mention_markdown_v2()} \(in private chat\)"
             )
         admin_text += escape_markdown(f"\n💰 Cost: $ {total_cost:.6f}" if total_cost else "", version=2)
+    else:
+        admin_text = f"{update.effective_chat.mention_markdown_v2()}: No summary generated due to excluded language"
 
     admin_channel_msg = AdminChannelMessage(
         text=admin_text,
@@ -108,7 +110,8 @@ async def process_transcription_request_message(update: Update, context: Context
     async with asyncio.TaskGroup() as tg:
         if start_message.is_accessible and start_message.write_access_allowed:
             tg.create_task(start_message.delete())
-        tg.create_task(bot_response_msg.send(context.bot))
+        if bot_response_msg is not None:
+            tg.create_task(bot_response_msg.send(context.bot))
         tg.create_task(admin_channel_msg.send(context.bot))
 
 
@@ -159,6 +162,10 @@ async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # if transcript language is None or chat language, show only one button
         if not bot_msg.text:
             [bot_msg] = list(_full_transcript_callback(update, context, summary.transcript_id))
+        elif summary.transcript.input_language in chat.excluded_languages:
+            # if language is excluded, do not return the message
+            _logger.info(f"Message not sent because language {summary.transcript.input_language.name} is excluded.")
+            bot_msg = None
         elif summary.transcript.input_language is None or summary.transcript.input_language == chat.language:
             button = [
                 InlineKeyboardButton(

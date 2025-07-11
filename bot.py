@@ -30,6 +30,7 @@ from summaree_bot.bot.premium import (
 )
 from summaree_bot.bot.user import (
     catch_all,
+    exclude_lang,
     help_handler,
     paysupport,
     set_lang,
@@ -107,6 +108,9 @@ def main() -> None:
 
     # Add command handler to start the payment invoice
     application.add_handler(CommandHandler("premium", premium_handler))
+    # We don't add this to the menu since this is a hidden feature
+    application.add_handler(CommandHandler("exclude", exclude_lang))
+
     # Pre-checkout handler to final check
     application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
     # Success! Notify your user!

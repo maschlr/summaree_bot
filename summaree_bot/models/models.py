@@ -59,6 +59,13 @@ chats_to_users_rel = Table(
     Column("chat_id", ForeignKey("telegram_chat.id"), primary_key=True),
 )
 
+chats_to_excluded_languages_rel = Table(
+    "chats_to_excluded_languages_rel",
+    Base.metadata,
+    Column("chat_id", ForeignKey("telegram_chat.id"), primary_key=True),
+    Column("language_id", ForeignKey("language.id"), primary_key=True),
+)
+
 
 class Language(Base):
     # DeepL supported target languages
@@ -72,6 +79,9 @@ class Language(Base):
     translations: Mapped[List["TopicTranslation"]] = relationship(back_populates="target_lang")
     chats: Mapped[List["TelegramChat"]] = relationship(back_populates="language")
     i18n: Mapped[List["Translation"]] = relationship(back_populates="target_lang")
+    excluded_chats: Mapped[List["TelegramChat"]] = relationship(
+        secondary=chats_to_excluded_languages_rel, back_populates="excluded_languages"
+    )
 
     @classmethod
     def get_default_language(cls, session: Session) -> "Language":
@@ -186,6 +196,9 @@ class TelegramChat(Base):
     subscriptions: Mapped[List["Subscription"]] = relationship(back_populates="chat")
     invoices: Mapped[List["Invoice"]] = relationship("Invoice", back_populates="chat")
     summaries: Mapped[List["Summary"]] = relationship(back_populates="tg_chat")
+    excluded_languages: Mapped[List["Language"]] = relationship(
+        secondary=chats_to_excluded_languages_rel, back_populates="excluded_chats"
+    )
 
     @property
     def is_premium_active(self) -> bool:

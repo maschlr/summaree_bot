@@ -27,6 +27,7 @@ from telegram.ext import ContextTypes
 from ..logging import getLogger
 from ..models import Language, TelegramChat, Transcript, Translation
 from ..models.session import DbSessionContext
+from ..models.session import Session as SessionMaker
 from ..templates import get_template
 from ..utils import url
 from . import BotMessage
@@ -353,7 +354,7 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
 
 
 async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None, page=None) -> None:
-    """Inline keyboard callback"""
+    """/set_lang Inline keyboard callback"""
     if ietf_tag is not None:
         context.args = [ietf_tag]
         await set_lang(update, context)
@@ -546,3 +547,102 @@ def _demo(update: Update, context: DbSessionContext) -> BotMessage:
     msg = _get_summary_message(update, context, transcript.summary)
 
     return msg
+
+
+async def exclude_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handler to configure excluding a language from the bot's functionality.
+    /exclude [{ietf_tag}]
+    If no language is specified, it will show the current exclude configuration.
+    """
+    # check for length of context.args
+    if len(context.args) == 0:
+        # No language specified, show current configuration
+        with SessionMaker.begin() as session:
+            chat = session.get(TelegramChat, update.effective_chat.id)
+            if chat is None:
+                text = "No languages are currently excluded for this chat."
+            else:
+                excluded_languages = chat.excluded_languages
+                if not excluded_languages:
+                    text = "No languages are currently excluded for this chat."
+                else:
+                    text = (
+                        "Excluded languages:\n"
+                        + "\n".join(f"• {lang.name}: `{lang.ietf_tag}`" for lang in excluded_languages)
+                        + "\n\nYou can use `/exclude [{ietf_tag}]` to add or remove a language from the excluded list."
+                    )
+            msg = BotMessage(
+                chat_id=update.effective_chat.id,
+                text=escape_markdown(text),
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_to_message_id=update.effective_message.message_thread_id
+                if update.effective_message.is_topic_message
+                else update.effective_message.id,
+            )
+            await msg.send(context.bot)
+        return
+    elif len(context.args) > 1:
+        # Too many arguments, show error message
+        text = "Too many arguments. Usage: `/exclude [{ietf_tag}]`"
+        msg = BotMessage(
+            chat_id=update.effective_chat.id,
+            text=escape_markdown(text),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_to_message_id=update.effective_message.message_thread_id
+            if update.effective_message.is_topic_message
+            else update.effective_message.id,
+        )
+        await msg.send(context.bot)
+        return
+
+    # A language is specified, try to find it and add check
+    # whether it is in the list of excluded languages for the current chat
+    # could be ietf_tag or the telegram language code
+    language_code = context.args[0].lower()
+    with SessionMaker.begin() as session:
+        stmt = select(Language).where((Language.ietf_tag == language_code) | (Language.code == language_code))
+        language = session.execute(stmt).scalar_one_or_none()
+        if language is None:
+            available_languages = "\n".join(
+                f"• {lang.name}: `{lang.ietf_tag}`" for lang in session.scalars(select(Language)).all()
+            )
+            text = (
+                f"Language `{language_code}` not found. Please use a valid IETF tag or language code. "
+                f"Available languages:\n {available_languages}"
+            )
+            msg = BotMessage(
+                chat_id=update.effective_chat.id,
+                text=escape_markdown(text),
+                parse_mode=ParseMode.MARKDOWN_V2,
+                reply_to_message_id=update.effective_message.message_thread_id
+                if update.effective_message.is_topic_message
+                else update.effective_message.id,
+            )
+            await msg.send(context.bot)
+            return
+
+        # Check if the chat already has this language excluded
+        # Remove it if it is already excluded, otherwise add it
+        chat_id = update.effective_chat.id
+        chat = session.get(TelegramChat, chat_id)
+
+        if language in chat.excluded_languages:
+            chat.excluded_languages.remove(language)
+            action = "removed from"
+        else:
+            chat.excluded_languages.append(language)
+            action = "added to"
+
+        text = f"{language.name} has been {action} the excluded languages."
+        session.commit()
+
+        msg = BotMessage(
+            chat_id=update.effective_chat.id,
+            text=escape_markdown(text),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_to_message_id=update.effective_message.message_thread_id
+            if update.effective_message.is_topic_message
+            else update.effective_message.id,
+        )
+        await msg.send(context.bot)
