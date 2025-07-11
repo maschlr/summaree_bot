@@ -353,7 +353,7 @@ def _get_lang_inline_keyboard(update: Update, context: DbSessionContext, page: i
 
 
 async def set_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None, page=None) -> None:
-    """Inline keyboard callback"""
+    """/set_lang Inline keyboard callback"""
     if ietf_tag is not None:
         context.args = [ietf_tag]
         await set_lang(update, context)
@@ -546,3 +546,19 @@ def _demo(update: Update, context: DbSessionContext) -> BotMessage:
     msg = _get_summary_message(update, context, transcript.summary)
 
     return msg
+
+
+async def exclude_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handler to configure excluding a language from the bot's functionality.
+    /exclude_lang [{ietf_tag}]
+    If no language is specified, it will show the current exclude configuration.
+    """
+    pass
+
+
+async def exclude_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, ietf_tag=None, page=None) -> None:
+    """_summary_
+    Callback for the /exclude_lang inline keyboard.
+    """
+    pass
