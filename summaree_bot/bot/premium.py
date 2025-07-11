@@ -567,8 +567,8 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
             (voice := update.message.voice) is None
             and (audio := update.message.audio) is None
             and (document := update.message.document) is None
-            and (video := update.message.video) is None
-            and (video_note := update.message.video_note) is None
+            and update.message.video is None
+            and update.message.video_note is None
         )
     ):
         raise ValueError("The update must contain chat/user/voice/audio message.")
@@ -671,7 +671,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
         await admin_msg.send(context.bot)
         raise NoActivePremium("Monthly message limit reached for non-premium users")
 
-    if video or video_note:
+    if update.effective_message.video or update.effective_message.video_note:
         if not any_user_in_chat_is_premium:
             lang_to_text = {
                 "en": "🎥 Video messages are a premium feature. Please upgrade to premium.",
