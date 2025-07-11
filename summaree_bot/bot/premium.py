@@ -613,7 +613,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
                 "ru": r"⚠️ Максимальный размер файла для не\-премиум составляет 10MB\. "
                 r"Отправьте меньший файл или обновитесь до `/premium`\.",
             }
-            text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+            text = lang_to_text.get(language_code, lang_to_text["en"])
             await update.message.reply_markdown_v2(
                 text,
                 reply_markup=subscription_keyboard,
@@ -648,7 +648,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
                 r" получения неограниченных резюме\.",
             }
 
-            text = lang_to_text.get(chat.language.code, lang_to_text["en"])
+            text = lang_to_text.get(language_code, lang_to_text["en"])
             await update.effective_message.reply_markdown_v2(
                 text,
                 reply_markup=subscription_keyboard,
