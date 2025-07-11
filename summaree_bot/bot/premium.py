@@ -626,7 +626,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
             text=(
                 f"User {update.effective_user.mention_markdown_v2()} tried to send "
                 f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}\n"
-                f"(in chat {update.effective_chat.mention_markdown_v2()})"
+                f"\(in chat {update.effective_chat.mention_markdown_v2()}\)"
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
@@ -693,7 +693,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
         admin_message = AdminChannelMessage(
             text=(
                 f"User {update.effective_user.mention_markdown_v2()} tried to send a video message "
-                f"(in chat {update.effective_chat.mention_markdown_v2()})"
+                f"\(in chat {update.effective_chat.mention_markdown_v2()}\)"
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
