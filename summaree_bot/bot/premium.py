@@ -559,19 +559,9 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
 
     Throws a NoActivePremium exception, returns None if all is good and we can proceed
     """
-    if (
-        update.message is None
-        or update.effective_chat is None
-        or update.effective_user is None
-        or (
-            (voice := update.message.voice) is None
-            and (audio := update.message.audio) is None
-            and (document := update.message.document) is None
-            and update.message.video is None
-            and update.message.video_note is None
-        )
-    ):
-        raise ValueError("The update must contain chat/user/voice/audio message.")
+    voice = update.message.voice
+    audio = update.message.audio
+    document = update.message.document
 
     with SessionMaker.begin() as session:
         chat = session.get(TelegramChat, update.effective_chat.id)
