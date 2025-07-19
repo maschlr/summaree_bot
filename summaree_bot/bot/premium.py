@@ -661,7 +661,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
         await admin_msg.send(context.bot)
         raise NoActivePremium("Monthly message limit reached for non-premium users")
 
-    if update.effective_message.video or update.effective_message.video_note:
+    if update.message and (update.effective_message.video or update.effective_message.video_note):
         if not any_user_in_chat_is_premium:
             lang_to_text = {
                 "en": "🎥 Video messages are a premium feature. Please upgrade to premium.",

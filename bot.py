@@ -91,12 +91,13 @@ def main() -> None:
     application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(
         MessageHandler(
-            filters.VOICE | filters.AUDIO | filters.Document.Category("audio/"), process_transcription_request_message
+            filters.UpdateType.MESSAGE & (filters.VOICE | filters.AUDIO | filters.Document.Category("audio/")),
+            process_transcription_request_message,
         )
     )
     application.add_handler(
         MessageHandler(
-            filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/"),
+            filters.UpdateType.MESSAGE & (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/")),
             process_transcription_request_message,
         )
     )
