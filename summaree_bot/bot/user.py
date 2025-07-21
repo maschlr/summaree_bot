@@ -23,6 +23,7 @@ from sqlalchemy import select
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from ..logging import getLogger
 from ..models import Language, TelegramChat, Transcript, Translation
@@ -38,7 +39,6 @@ from .constants import (
     UI_TRANSLATION_IETF_TAGS,
 )
 from .db import ensure_chat, session_context
-from .helpers import escape_markdown
 from .premium import get_sale_text, get_subscription_keyboard, referral
 
 # Enable logging
@@ -108,7 +108,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
             to_translate = [chat.language.name, *[lang.name for lang in languages]]
             translations.update(_t(session, set(to_translate), ietf_tag))
             lang_txt = escape_markdown(
-                f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{translations[chat.language.name]}]"
+                f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{translations[chat.language.name]}]", version=2
             )
         else:
             lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]")
@@ -227,7 +227,7 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
         }
 
         template = lang_txt_templates.get(ietf_tag, lang_txt_templates["en"])
-        prefix = template.format(lang_txt=escape_markdown(lang_txt))
+        prefix = template.format(lang_txt=escape_markdown(lang_txt, version=2))
 
         return BotMessage(
             chat_id=update.effective_message.chat_id,
@@ -415,7 +415,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         _logger.warning("Received invalid start handler argument(s) (%s)", context.args)
         bot_msg = BotMessage(
             chat_id=update.message.chat_id,
-            text=escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)"),
+            text=escape_markdown(f"😵‍💫 Receiced invalid argument(s) (`{context.args}`)", version=2),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_to_message_id=update.effective_message.message_thread_id
             if update.effective_message.is_topic_message
@@ -574,7 +574,7 @@ async def exclude_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     )
             msg = BotMessage(
                 chat_id=update.effective_chat.id,
-                text=escape_markdown(text),
+                text=escape_markdown(text, version=2),
                 parse_mode=ParseMode.MARKDOWN_V2,
                 reply_to_message_id=update.effective_message.message_thread_id
                 if update.effective_message.is_topic_message
@@ -587,7 +587,7 @@ async def exclude_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text = "Too many arguments. Usage: `/exclude [{ietf_tag}]`"
         msg = BotMessage(
             chat_id=update.effective_chat.id,
-            text=escape_markdown(text),
+            text=escape_markdown(text, version=2),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_to_message_id=update.effective_message.message_thread_id
             if update.effective_message.is_topic_message
@@ -613,7 +613,7 @@ async def exclude_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             msg = BotMessage(
                 chat_id=update.effective_chat.id,
-                text=escape_markdown(text),
+                text=escape_markdown(text, version=2),
                 parse_mode=ParseMode.MARKDOWN_V2,
                 reply_to_message_id=update.effective_message.message_thread_id
                 if update.effective_message.is_topic_message
@@ -639,7 +639,7 @@ async def exclude_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         msg = BotMessage(
             chat_id=update.effective_chat.id,
-            text=escape_markdown(text),
+            text=escape_markdown(text, version=2),
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_to_message_id=update.effective_message.message_thread_id
             if update.effective_message.is_topic_message

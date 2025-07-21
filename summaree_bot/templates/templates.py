@@ -3,14 +3,14 @@ from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, Template
 from telegram import Update
+from telegram.helpers import escape_markdown
 
 from ..bot.constants import UI_TRANSLATION_IETF_TAGS
-from ..bot.helpers import escape_markdown
 
 template_root = Path(__file__).parent / "data"
 template_paths = [template_root] + [template_root / path for path in UI_TRANSLATION_IETF_TAGS]
 env = Environment(loader=FileSystemLoader(template_paths))
-env.globals.update(escape_markdown=escape_markdown)
+env.globals.update(escape_markdown=lambda s: escape_markdown(s, version=2))
 
 TEMPLATES: dict[str, dict[str, str]] = {
     "help": {

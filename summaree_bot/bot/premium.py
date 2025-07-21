@@ -671,7 +671,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
             }
             user_return_text = lang_to_text.get(language_code, lang_to_text["en"])
             await update.effective_message.reply_markdown_v2(
-                escape_markdown(user_return_text),
+                escape_markdown(user_return_text, version=2),
                 reply_markup=subscription_keyboard,
                 reply_to_message_id=(
                     update.effective_message.message_thread_id

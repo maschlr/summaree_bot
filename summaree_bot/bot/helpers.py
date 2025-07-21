@@ -123,12 +123,6 @@ class BotDocument(BotResponse):
         await bot.send_document(**self)
 
 
-def escape_markdown(text: str) -> str:
-    """Helper function to escape telegram markup symbols"""
-    escape_chars = r".\*_[]()!#+{}~>-="
-    return r"".join(rf"\{c}" if c in escape_chars else c for c in text)
-
-
 def wrap_in_pre(text: str) -> str:
     """Wraps the text in a code block"""
     msg = html.escape(text)
