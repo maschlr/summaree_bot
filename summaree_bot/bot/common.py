@@ -46,6 +46,8 @@ async def process_transcription_request_message(update: Update, context: Context
     except NoActivePremium:
         return
     except BadRequest as br:
+        # probably better to implement this as a decorator
+        # let's see if we receive more BadRequest errors
         _logger.warning(f"BadRequest error occurred: {br}")
         if br.message.strip() == "Not enough rights to send text messages to the chat":
             text = (
