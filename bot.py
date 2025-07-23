@@ -98,7 +98,9 @@ def main() -> None:
     )
     application.add_handler(
         MessageHandler(
-            filters.UpdateType.MESSAGE & (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/")),
+            filters.UpdateType.MESSAGE
+            & ~filters.ANIMATION
+            & (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/")),
             process_transcription_request_message,
         )
     )
