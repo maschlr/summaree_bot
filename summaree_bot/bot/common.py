@@ -10,6 +10,7 @@ import telegram
 from sqlalchemy import and_, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, MessageLimit, ParseMode, ReactionEmoji
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from telegram.helpers import escape_markdown
 from telethon.sync import TelegramClient as TelethonClient
@@ -44,6 +45,21 @@ async def process_transcription_request_message(update: Update, context: Context
         await check_premium_features(update, context)
     except NoActivePremium:
         return
+    except BadRequest as br:
+        _logger.warning(f"BadRequest error occurred: {br}")
+        if br.message.strip() == "Not enough rights to send text messages to the chat":
+            text = (
+                f"{update.effective_user.mention_markdown_v2()} tried to send a request to "
+                f"chat {update.effective_chat.mention_markdown_v2()} where the bot is not allowed to send messages."
+            )
+            admin_channel_msg = AdminChannelMessage(
+                text=escape_markdown(text, version=2),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            await admin_channel_msg.send(context.bot)
+            return
+        else:
+            raise
 
     _logger.info(f"Transcribing and summarizing message: {update.message}")
 
