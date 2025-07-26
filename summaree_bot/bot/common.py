@@ -144,10 +144,17 @@ async def process_transcription_request_message(update: Update, context: Context
 
     async with asyncio.TaskGroup() as tg:
         if start_message.is_accessible:
-            tg.create_task(start_message.delete())
+            tg.create_task(delete_or_catch_message(start_message))
         if bot_response_msg is not None:
             tg.create_task(bot_response_msg.send(context.bot))
         tg.create_task(admin_channel_msg.send(context.bot))
+
+
+async def delete_or_catch_message(message: telegram.Message) -> None:
+    try:
+        await message.delete()
+    except BadRequest as br:
+        _logger.warning(f"Could not delete message {message.id}: {br}")
 
 
 async def get_summary_msg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Coroutine[Any, Any, BotMessage]:
