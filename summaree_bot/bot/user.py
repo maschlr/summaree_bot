@@ -111,7 +111,9 @@ def _set_lang(update: Update, context: DbSessionContext) -> BotMessage:
                 f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{translations[chat.language.name]}]", version=2
             )
         else:
-            lang_txt = escape_markdown(f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]")
+            lang_txt = escape_markdown(
+                f"{chat.language.flag_emoji} {chat.language.ietf_tag} [{chat.language.name}]", version=2
+            )
 
         prefix_template = get_template("lang_prefix", update)
         prefix = prefix_template.render(lang_txt=lang_txt)
