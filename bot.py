@@ -92,7 +92,9 @@ def main() -> None:
     application.add_handler(CommandHandler("referral", referral_handler))
     application.add_handler(
         MessageHandler(
-            filters.UpdateType.MESSAGE & (filters.VOICE | filters.AUDIO | filters.Document.Category("audio/")),
+            filters.UpdateType.MESSAGE
+            & ~filters.UpdateType.CHANNEL_POSTS
+            & (filters.VOICE | filters.AUDIO | filters.Document.Category("audio/")),
             process_transcription_request_message,
         )
     )
@@ -100,6 +102,7 @@ def main() -> None:
         MessageHandler(
             filters.UpdateType.MESSAGE
             & ~filters.ANIMATION
+            & ~filters.UpdateType.CHANNEL_POSTS
             & (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/")),
             process_transcription_request_message,
         )
