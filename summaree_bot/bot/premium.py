@@ -590,6 +590,12 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
         int, voice.file_size if voice else audio.file_size if audio else document.file_size if document else 0
     )
     subscription_keyboard = get_subscription_keyboard(update, context)
+
+    try:
+        chat_mention_text = update.effective_chat.mention_markdown_v2()
+    except TypeError:
+        chat_mention_text = f"`chat_id: {update.effective_chat.id}` \\(private\\)"
+
     if file_size > 10 * 1024 * 1024:
         if not any_user_in_chat_is_premium:
             # if no user in the chat has an active premium subscription, show a message
@@ -616,7 +622,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
             text=(
                 f"User {update.effective_user.mention_markdown_v2()} tried to send "
                 f"a file than was {escape_markdown(f'{file_size / 1024 / 1024:.2f} MB', version=2)}\n"
-                f"\(in chat {update.effective_chat.mention_markdown_v2()}\)"
+                f"\\(in chat {chat_mention_text}\\)"
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
@@ -683,7 +689,7 @@ async def check_premium_features(update: Update, context: ContextTypes.DEFAULT_T
         admin_message = AdminChannelMessage(
             text=(
                 f"User {update.effective_user.mention_markdown_v2()} tried to send a video message "
-                f"\(in chat {update.effective_chat.mention_markdown_v2()}\)"
+                f"\\(in chat {chat_mention_text}\\)"
             ),
             parse_mode=ParseMode.MARKDOWN_V2,
         )
