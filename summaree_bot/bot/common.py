@@ -51,11 +51,12 @@ async def process_transcription_request_message(update: Update, context: Context
         # let's see if we receive more BadRequest errors
         _logger.warning(f"BadRequest error occurred: {br}")
         if br.message.strip() == "Not enough rights to send text messages to the chat":
+            escaped_chat_id = escape_markdown(str(update.effective_chat.id), version=2)
             try:
-                chat_mention = rf"{update.effective_chat.mention_markdown_v2()} \(ID {update.effective_chat.id}\)"
+                chat_mention = f"{update.effective_chat.mention_markdown_v2()} \\(ID {escaped_chat_id}\\)"
             except TypeError:
                 # private chats cannot be mentioned and will raise TypeError
-                chat_mention = f"ID {update.effective_chat.id}"
+                chat_mention = f"ID {escaped_chat_id}"
 
             template_string = escape_markdown(
                 "$usermention (ID $userid) tried to send a request to "
