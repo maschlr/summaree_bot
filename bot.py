@@ -13,6 +13,7 @@ from telegram.ext import (
     filters,
 )
 
+from config.ignored import IGNORED_CHAT_IDS, IGNORED_USER_IDS
 from summaree_bot.bot.admin import command_to_handler
 from summaree_bot.bot.common import process_transcription_request_message
 from summaree_bot.bot.db import chat_migration
@@ -44,6 +45,13 @@ from summaree_bot.models import Subscription
 
 # Enable logging
 _logger = getLogger(__name__)
+
+# Create filter to exclude ignored users and chats
+ignored_filter = filters.ALL
+if IGNORED_USER_IDS:
+    ignored_filter = ignored_filter & ~filters.User(user_id=IGNORED_USER_IDS)
+if IGNORED_CHAT_IDS:
+    ignored_filter = ignored_filter & ~filters.Chat(chat_id=IGNORED_CHAT_IDS)
 
 
 def main() -> None:
@@ -94,7 +102,8 @@ def main() -> None:
         MessageHandler(
             filters.UpdateType.MESSAGE
             & ~filters.UpdateType.CHANNEL_POSTS
-            & (filters.VOICE | filters.AUDIO | filters.Document.Category("audio/")),
+            & (filters.VOICE | filters.AUDIO | filters.Document.Category("audio/"))
+            & ignored_filter,
             process_transcription_request_message,
         )
     )
@@ -103,7 +112,8 @@ def main() -> None:
             filters.UpdateType.MESSAGE
             & ~filters.ANIMATION
             & ~filters.UpdateType.CHANNEL_POSTS
-            & (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/")),
+            & (filters.VIDEO | filters.VIDEO_NOTE | filters.Document.Category("video/"))
+            & ignored_filter,
             process_transcription_request_message,
         )
     )
