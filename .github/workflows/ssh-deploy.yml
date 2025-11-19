@@ -39,8 +39,7 @@ jobs:
             source .venv/bin/activate
 
             # Update dependencies
-            uv pip install -U pip
-            uv pip install -U -r requirements.txt
+            uv sync
 
             # Run migrations
             alembic upgrade head
