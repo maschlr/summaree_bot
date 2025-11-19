@@ -42,7 +42,7 @@ jobs:
             uv sync
 
             # Run migrations
-            alembic upgrade head
+            uv run alembic upgrade head
 
             # stop the supervisor process
             supervisorctl start $SERVICE
