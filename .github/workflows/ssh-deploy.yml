@@ -38,9 +38,6 @@ jobs:
             # switch to the virtual environment
             source .venv/bin/activate
 
-            # Update dependencies
-            uv sync
-
             # Run migrations
             uv run alembic upgrade head
 
