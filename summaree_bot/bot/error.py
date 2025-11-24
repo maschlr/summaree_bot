@@ -4,6 +4,7 @@ from typing import Iterator, Union
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from ..logging import getLogger
@@ -23,13 +24,15 @@ async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     await update.callback_query.answer()
     await update.effective_message.edit_reply_markup(reply_markup=None)
     await update.effective_message.reply_markdown_v2(
-        "Sorry, I could not process this button click\. Button seems to be not available anymore 😕"
+        r"Sorry, I could not process this button click\. Button seems to be not available anymore 😕"
     )
 
 
 def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> Iterator[AdminChannelMessage]:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
+    if isinstance(context.error, BadRequest) and "Not enough rights" in context.error.message:
+        return
     _logger.error("Exception while handling an update:", exc_info=context.error)
 
     # traceback.format_exception returns the usual python message about an exception, but as a
