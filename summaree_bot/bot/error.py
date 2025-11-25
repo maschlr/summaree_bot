@@ -31,8 +31,11 @@ async def invalid_button_handler(update: Update, context: ContextTypes.DEFAULT_T
 def _error_handler(update: Union[Update, object], context: ContextTypes.DEFAULT_TYPE) -> Iterator[AdminChannelMessage]:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
-    if isinstance(context.error, BadRequest) and "Not enough rights" in context.error.message:
-        return
+    if context.error and hasattr(context.error, "exceptions"):
+        filtered_expceptions = [exc for exc in context.error.exceptions if isinstance(exc, BadRequest)]
+        if any(("Not enough rights" in exc.message) for exc in filtered_expceptions):
+            _logger.warning("Ignoring 'Not enough rights' BadRequest exceptions for update: %s", update)
+            return
     _logger.error("Exception while handling an update:", exc_info=context.error)
 
     # traceback.format_exception returns the usual python message about an exception, but as a
