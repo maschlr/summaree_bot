@@ -308,17 +308,18 @@ class Summary(Base):
         # gpt-4o: $0.015 per 1M tokens
         # gpt-4: $0.015 per 1M tokens
         # gpt-3.5-turbo: $0.0015 per 1M tokens
+        # gpt-4.1-mini: $0.4 per 1M input / $1.6 per 1M output
         if not self.openai_model:
             return None
 
-        match = re.match(r"gpt-4o-mini.*?", self.openai_model)
+        match = re.match(r"gpt-4.1-mini.*?", self.openai_model)
         if not match:
             # raise NotImplementedError(f"Cost for model {self.openai_model} not implemented")
             return None
 
         total_cost = (
-            self.completion_tokens / 1e6 * 0.6
-            + self.prompt_tokens / 1e6 * 0.15
+            self.completion_tokens / 1e6 * 1.6
+            + self.prompt_tokens / 1e6 * 0.4
             + self.transcript.total_seconds / 60 * 0.006
         )
         return total_cost
