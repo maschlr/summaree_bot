@@ -412,23 +412,20 @@ def _extract_file_name(
         telegram.Voice, telegram.Audio, telegram.Document, telegram.Video, telegram.VideoNote
     ]
 ) -> Path:
-    if (
-        hasattr(voice_or_audio_or_document_or_video, "file_name")
-        and voice_or_audio_or_document_or_video.file_name is not None
-    ):
-        file_name = Path(voice_or_audio_or_document_or_video.file_name)
-        sanitized_file_name = voice_or_audio_or_document_or_video.file_unique_id + file_name.suffix
-        return Path(sanitized_file_name)
+    file_unique_id = voice_or_audio_or_document_or_video.file_unique_id
 
-    # else try to extract the suffix via the mime type or use file_name without suffic
-    match = None
+    # Types with file_name attribute: Audio, Document, Video
+    if isinstance(voice_or_audio_or_document_or_video, (telegram.Audio, telegram.Document, telegram.Video)):
+        if voice_or_audio_or_document_or_video.file_name is not None:
+            suffix = Path(voice_or_audio_or_document_or_video.file_name).suffix
+            return Path(file_unique_id + suffix)
 
-    if mime_type := voice_or_audio_or_document_or_video.mime_type:
-        match = mimetype_pattern.match(mime_type)
+    # Try to extract suffix from mime_type (Voice, Audio, Document, Video have mime_type)
+    # VideoNote does not have mime_type
+    if not isinstance(voice_or_audio_or_document_or_video, telegram.VideoNote):
+        if mime_type := voice_or_audio_or_document_or_video.mime_type:
+            if match := mimetype_pattern.match(mime_type):
+                return Path(f"{file_unique_id}.{match.group('subtype')}")
 
-    if match is None:
-        file_name = voice_or_audio_or_document_or_video.file_unique_id
-    else:
-        file_name = f"{voice_or_audio_or_document_or_video.file_unique_id}.{match.group('subtype')}"
-
-    return Path(file_name)
+    # Fallback: use file_unique_id without extension
+    return Path(file_unique_id)
