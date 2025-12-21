@@ -312,7 +312,7 @@ async def full_transcript_callback(update: Update, context: ContextTypes.DEFAULT
 @session_context
 def _full_transcript_callback(
     update: Update, context: DbSessionContext, transcript_id: int, translate: bool = False
-) -> Generator[BotMessage, None, None]:
+) -> Generator[Union[BotMessage, BotDocument], None, None]:
     if update.effective_chat is None:
         raise ValueError("The update must contain a chat.")
 
