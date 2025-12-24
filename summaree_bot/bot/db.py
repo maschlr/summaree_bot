@@ -18,6 +18,11 @@ def ensure_chat(fnc):
         # update is either in kwargs or first arg
         update = kwargs.get("update", args[0])
         context = kwargs.get("context", args[1])
+
+        # Skip for updates without users (channel posts, service messages, etc.)
+        if update.effective_user is None:
+            return fnc(*args, **kwargs)
+
         session = context.db_session
         user_attrs = [
             "id",
