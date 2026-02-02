@@ -14,6 +14,7 @@ from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ParsedChatCompletion
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from telegram.ext import ContextTypes
 
 from ..bot.exceptions import EmptyTranscription
@@ -93,31 +94,43 @@ async def transcribe_file(
     # send the audio file to openai whisper, create a db entry and return it
     whisper_transcription = await get_whisper_transcription(supported_file_path)
 
-    with Session.begin() as session:
-        if transcript_language_str := whisper_transcription.language:
-            query = select(Language).where(func.regexp_like(Language.name, f"^{transcript_language_str.capitalize()}"))
-            transcript_language = session.execute(query).scalar_one_or_none()
-        else:
-            transcript_language = None
+    try:
+        with Session.begin() as session:
+            if transcript_language_str := whisper_transcription.language:
+                query = select(Language).where(
+                    func.regexp_like(Language.name, f"^{transcript_language_str.capitalize()}")
+                )
+                transcript_language = session.execute(query).scalar_one_or_none()
+            else:
+                transcript_language = None
 
-        transcript = Transcript(
-            created_at=update.effective_message.date,
-            finished_at=dt.datetime.now(dt.UTC),
-            file_unique_id=voice_or_audio_or_document_or_video.file_unique_id,
-            file_id=voice_or_audio_or_document_or_video.file_id,
-            sha256_hash=sha256_hash,
-            duration=voice_or_audio_or_document_or_video.duration
-            if hasattr(voice_or_audio_or_document_or_video, "duration")
-            else None,
-            mime_type=voice_or_audio_or_document_or_video.mime_type,
-            file_size=voice_or_audio_or_document_or_video.file_size,
-            result=whisper_transcription.text,
-            input_language=transcript_language,
-            total_seconds=whisper_transcription.total_seconds,
-        )
-        session.add(transcript)
-        session.flush()
-        return transcript
+            transcript = Transcript(
+                created_at=update.effective_message.date,
+                finished_at=dt.datetime.now(dt.UTC),
+                file_unique_id=voice_or_audio_or_document_or_video.file_unique_id,
+                file_id=voice_or_audio_or_document_or_video.file_id,
+                sha256_hash=sha256_hash,
+                duration=voice_or_audio_or_document_or_video.duration
+                if hasattr(voice_or_audio_or_document_or_video, "duration")
+                else None,
+                mime_type=voice_or_audio_or_document_or_video.mime_type,
+                file_size=voice_or_audio_or_document_or_video.file_size,
+                result=whisper_transcription.text,
+                input_language=transcript_language,
+                total_seconds=whisper_transcription.total_seconds,
+            )
+            session.add(transcript)
+            session.flush()
+            return transcript
+    except IntegrityError:
+        # Race condition: another request already inserted this transcript
+        _logger.info(f"Race condition detected for file_unique_id={voice_or_audio_or_document_or_video.file_unique_id}")
+        with Session.begin() as session:
+            stmt = select(Transcript).where(
+                (Transcript.file_unique_id == voice_or_audio_or_document_or_video.file_unique_id)
+                | (Transcript.sha256_hash == sha256_hash)
+            )
+            return session.execute(stmt).scalar_one()
 
 
 @dataclass
