@@ -258,7 +258,6 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
     else:
         msg = "\n".join(f"- {topic.text}" for topic in sorted(summary.topics, key=lambda t: t.order))
 
-    hashtags = " ".join(summary.transcript.hashtags) + "\n\n" if summary.transcript.hashtags else ""
     if (summary_language := summary.transcript.input_language) and summary_language != chat.language:
         # add language info if different
         lang_to_lang_prefix = {
@@ -281,9 +280,9 @@ def _get_summary_message(update: Update, context: DbSessionContext, summary: Sum
         }
         prefix_lines = lang_to_lang_prefix.get(chat.language.code, lang_to_lang_prefix["en"])
         prefix = "\n".join(prefix_lines)
-        text = f"{hashtags}{prefix}\n\n{msg}"
+        text = f"{prefix}\n\n{msg}"
     else:
-        text = f"{hashtags}{msg}"
+        text = msg
 
     return BotMessage(
         chat_id=update.effective_chat.id,

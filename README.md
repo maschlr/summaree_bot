@@ -17,7 +17,6 @@ Currently, the bot is running on [Telegram](https://telegram.org/): **[@summaree
 - [x] User interface in four languages: 🇺🇸 English, 🇩🇪 German, 🇷🇺 Russian and 🇪🇸 Spanish
 - [x] Transcribe & translate voice messages & audio files
 - [x] Create & translate summary of transcripts
-- [x] Add hashtags to summaries for easy search & categorization
 
 ## Development
 

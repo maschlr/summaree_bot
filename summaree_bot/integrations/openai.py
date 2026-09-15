@@ -225,7 +225,6 @@ def _summarize(update: telegram.Update, context: DbSessionContext, transcript: T
         prompt_tokens=openai_response.usage.prompt_tokens,
     )
     transcript.reaction_emoji = summary_response.emoji
-    transcript.hashtags = summary_response.hashtags
 
     session.add(summary)
     return summary
@@ -339,7 +338,6 @@ class SummaryResponse(BaseModel):
         "WOMAN_SHRUGGING",
         "POUTING_FACE",
     ]
-    hashtags: list[str]
 
 
 def get_openai_chatcompletion(transcript: str) -> ParsedChatCompletion:
@@ -355,8 +353,7 @@ def get_openai_chatcompletion(transcript: str) -> ParsedChatCompletion:
         "2. The topics discussed in the message. The topics should be written in the language of the transcript."
         " Write them as bullet points, each topic described in a concise but complete sentence."
         " Avoid using 'The speaker' or anything similar. Output only the pure information.\n"
-        "3. ONE emoji that best describes the message.\n"
-        "4. UP TO THREE hashtags that best describe the message. Make sure to prefix them with ONLY with a '#' symbol."
+        "3. ONE emoji that best describes the message."
     )
 
     summary_result = client.beta.chat.completions.parse(
